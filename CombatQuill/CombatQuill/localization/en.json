@@ -1,0 +1,12 @@
+{
+  "combat_quill.name": "CombatQuill",
+  "settings.color": "Color",
+  "settings.stroke_width": "Width",
+  "settings.stroke_opacity": "Ink",
+  "settings.panel_opacity": "Panel",
+  "settings.eraser_width": "Erase",
+  "tooltip.settings": "Open brush settings",
+  "tooltip.pin_locked": "Toolbar locked: click to enable dragging",
+  "tooltip.pin_unlocked": "Toolbar unlocked: drag the bar background to move it",
+  "tooltip.color": "Color {0}"
+}

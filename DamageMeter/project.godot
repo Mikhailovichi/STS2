@@ -1,0 +1,18 @@
+; Engine configuration file.
+; This project exists so DamageMeter can export a lightweight .pck with localized metadata.
+
+config_version=5
+
+[application]
+
+config/name="DamageMeter"
+config/features=PackedStringArray("4.5", "C#", "Mobile")
+config/icon="res://icon.svg"
+
+[dotnet]
+
+project/assembly_name="DamageMeter"
+
+[rendering]
+
+renderer/rendering_method="mobile"

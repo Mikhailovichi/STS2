@@ -1,0 +1,29 @@
+{
+  "Enabled": true,
+  "StartInQuillMode": false,
+  "ShowStatusPanel": false,
+  "ShowOwnerLegend": true,
+  "EnableInRewards": true,
+  "ToggleKey": "F8",
+  "ClearKey": "F9",
+  "EraserKey": "E",
+  "DrawButton": "Right",
+  "StrokeWidth": 6.0,
+  "EraserRadius": 28.0,
+  "EraserWidth": 24.0,
+  "StrokeColorHtml": "5cc8ff",
+  "PaletteHtml": [
+    "5cc8ff",
+    "ff7a7a",
+    "ffd166",
+    "83e8ad",
+    "c89bff",
+    "ffffff"
+  ],
+  "SelectedColorIndex": 0,
+  "StrokeOpacity": 0.9,
+  "PanelOpacity": 0.82,
+  "ToolbarPositionX": -1.0,
+  "ToolbarPositionY": -1.0,
+  "ToolbarLocked": true
+}

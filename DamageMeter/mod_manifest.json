@@ -1,0 +1,7 @@
+{
+  "pck_name": "DamageMeter",
+  "name": "Damage Meter",
+  "author": "",
+  "description": "\u663e\u793a\u8f93\u51fa\u3001\u771f\u5b9e\u4f24\u5bb3\u3001\u80fd\u91cf\u4e0e\u590d\u76d8\u56fe\u8868 / Show damage, true damage, energy, and review charts.",
+  "version": "0.1.0"
+}
