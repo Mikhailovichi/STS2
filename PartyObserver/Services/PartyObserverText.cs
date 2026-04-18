@@ -1,5 +1,6 @@
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Potions;
 using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
@@ -118,9 +119,51 @@ internal static class PartyObserverText
             $"獎勵數量：{count}");
     }
 
+    public static string ChoosingRelic()
+    {
+        return Pick(
+            "Choosing a relic",
+            "\u6b63\u5728\u9009\u62e9\u9057\u7269",
+            "\u6b63\u5728\u9078\u64c7\u907a\u7269");
+    }
+
+    public static string FormatRelicOptionsCount(int count)
+    {
+        return Pick(
+            $"Relics: {count}",
+            $"\u9057\u7269\u6570\u91cf: {count}",
+            $"\u907a\u7269\u6578\u91cf: {count}");
+    }
+
+    public static string RelicChoice()
+    {
+        return Pick(
+            "Relic choice",
+            "\u9057\u7269\u9009\u62e9",
+            "\u907a\u7269\u9078\u64c7");
+    }
+
     public static string ChoosingCard()
     {
         return Pick("Choosing a card", "正在选择卡牌", "正在選擇卡牌");
+    }
+
+    public static string Shop()
+    {
+        return Pick("Shop", "商店", "商店");
+    }
+
+    public static string BrowsingShop()
+    {
+        return Pick("Browsing the shop", "正在查看商店", "正在查看商店");
+    }
+
+    public static string FormatShopInventory(int gold, int count)
+    {
+        return Pick(
+            $"Offers: {count} · Gold: {gold}",
+            $"商品：{count} · 金币：{gold}",
+            $"商品：{count} · 金幣：{gold}");
     }
 
     public static string FormatCardOptionsCount(int count)
@@ -247,6 +290,50 @@ internal static class PartyObserverText
         return Pick("Modified", "已修改", "已修改");
     }
 
+    public static string OnSale()
+    {
+        return Pick("On sale", "促销中", "促銷中");
+    }
+
+    public static string Used()
+    {
+        return Pick("Used", "已使用", "已使用");
+    }
+
+    public static string CardRemoval()
+    {
+        return Pick("Card removal", "删牌服务", "刪牌服務");
+    }
+
+    public static string ShopService()
+    {
+        return Pick("Shop service", "商店服务", "商店服務");
+    }
+
+    public static string CardRemovalDescription()
+    {
+        return Pick(
+            "Remove one card from the deck.",
+            "从牌组中移除一张卡牌。",
+            "從牌組中移除一張卡牌。");
+    }
+
+    public static string CardRemovalUsedDescription()
+    {
+        return Pick(
+            "This shop's card removal has already been used.",
+            "本次商店的删牌服务已经使用过了。",
+            "本次商店的刪牌服務已經使用過了。");
+    }
+
+    public static string FormatGoldAmount(int amount)
+    {
+        return Pick(
+            $"{amount} gold",
+            $"{amount} 金币",
+            $"{amount} 金幣");
+    }
+
     public static string RewardAvailable()
     {
         return Pick(
@@ -320,8 +407,10 @@ internal static class PartyObserverText
         return kind switch
         {
             PartyObserverChoiceSnapshotKind.Rewards => Pick("Rewards", "奖励", "獎勵"),
+            PartyObserverChoiceSnapshotKind.RelicSelection => RelicChoice(),
             PartyObserverChoiceSnapshotKind.CardRewardSelection => CardReward(),
             PartyObserverChoiceSnapshotKind.EventChoices => Event(),
+            PartyObserverChoiceSnapshotKind.MerchantInventory => Shop(),
             _ => Unknown()
         };
     }
@@ -391,6 +480,17 @@ internal static class PartyObserverText
             RelicRarity.Starter => Pick("Starter", "初始", "初始"),
             RelicRarity.Event => Pick("Event", "事件", "事件"),
             RelicRarity.Ancient => Pick("Ancient", "远古", "遠古"),
+            _ => Pick("None", "无", "無")
+        };
+    }
+
+    public static string GetPotionRarity(PotionRarity rarity)
+    {
+        return rarity switch
+        {
+            PotionRarity.Common => Pick("Common", "普通", "普通"),
+            PotionRarity.Uncommon => Pick("Uncommon", "罕见", "罕見"),
+            PotionRarity.Rare => Pick("Rare", "稀有", "稀有"),
             _ => Pick("None", "无", "無")
         };
     }

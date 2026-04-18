@@ -1,0 +1,11 @@
+{
+  "id": "RandomVision",
+  "name": "RandomVision",
+  "author": "",
+  "description": "Transparent previews for deterministic event outcomes and Crystal Sphere.",
+  "version": "0.2.0",
+  "has_pck": true,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": false
+}

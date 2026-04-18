@@ -1,0 +1,7 @@
+{
+  "pck_name": "RelicRpsChoice",
+  "name": "Relic RPS Choice",
+  "author": "",
+  "description": "\u8054\u673a\u4e89\u62a2\u9057\u7269\u65f6\u53ef\u4ee5\u624b\u52a8\u9009\u62e9\u77f3\u5934\u3001\u526a\u5200\u6216\u5e03 / Choose rock, paper, or scissors manually when fighting over shared relics.",
+  "version": "0.1.0"
+}

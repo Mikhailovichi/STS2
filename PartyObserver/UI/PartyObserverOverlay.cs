@@ -9,6 +9,10 @@ namespace PartyObserver.UI;
 
 public partial class PartyObserverOverlay : CanvasLayer
 {
+    private static readonly Vector2 HoverPanelAnchorOffset = new(-14f, 0f);
+    private static readonly Vector2 DetailPanelAnchorOffset = new(-8f, 0f);
+    private const int FontSizeBump = 1;
+
     private sealed class AnchorBinding
     {
         public required NMultiplayerPlayerState State { get; init; }
@@ -37,6 +41,11 @@ public partial class PartyObserverOverlay : CanvasLayer
     private string _languageToken = string.Empty;
     private ulong _hoverPlayerId;
     private ulong _detailPlayerId;
+
+    private static int BumpFont(int size)
+    {
+        return size + FontSizeBump;
+    }
 
     internal void Initialize(PartyObserverSettings settings)
     {
@@ -166,12 +175,12 @@ public partial class PartyObserverOverlay : CanvasLayer
 
         if (_hoverPanel?.Visible == true)
         {
-            PositionPanel(_hoverPanel, activeState, new Vector2(18f, 0f));
+            PositionPanel(_hoverPanel, activeState, HoverPanelAnchorOffset);
         }
 
         if (_detailPanel?.Visible == true)
         {
-            PositionPanel(_detailPanel, activeState, new Vector2(18f, 0f));
+            PositionPanel(_detailPanel, activeState, DetailPanelAnchorOffset);
         }
 
         if ((_hoverPanel?.Visible == true || _detailPanel?.Visible == true) &&
@@ -179,6 +188,32 @@ public partial class PartyObserverOverlay : CanvasLayer
         {
             HideAllPanels();
         }
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        if (@event is not InputEventMouseButton
+            {
+                ButtonIndex: MouseButton.Left,
+                Pressed: true
+            } mouseButtonEvent)
+        {
+            return;
+        }
+
+        if (_hoverPanel?.Visible != true && _detailPanel?.Visible != true)
+        {
+            return;
+        }
+
+        var clickPosition = mouseButtonEvent.Position;
+        if (IsPointInsideVisiblePanel(_hoverPanel, clickPosition) ||
+            IsPointInsideVisiblePanel(_detailPanel, clickPosition))
+        {
+            return;
+        }
+
+        HideAllPanels();
     }
 
     private void CreateRoot()
@@ -226,7 +261,7 @@ public partial class PartyObserverOverlay : CanvasLayer
             MouseFilter = Control.MouseFilterEnum.Ignore,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
-        _hoverHeadingLabel.AddThemeFontSizeOverride("font_size", 13);
+        _hoverHeadingLabel.AddThemeFontSizeOverride("font_size", BumpFont(13));
         _hoverHeadingLabel.AddThemeColorOverride("font_color", Colors.White);
         content.AddChild(_hoverHeadingLabel);
 
@@ -235,7 +270,7 @@ public partial class PartyObserverOverlay : CanvasLayer
             MouseFilter = Control.MouseFilterEnum.Ignore,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
-        _hoverSummaryLabel.AddThemeFontSizeOverride("font_size", 11);
+        _hoverSummaryLabel.AddThemeFontSizeOverride("font_size", BumpFont(11));
         _hoverSummaryLabel.AddThemeColorOverride("font_color", new Color("D7E4F0"));
         content.AddChild(_hoverSummaryLabel);
 
@@ -251,7 +286,7 @@ public partial class PartyObserverOverlay : CanvasLayer
             Text = PartyObserverText.HoverHint(),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        _hoverHintLabel.AddThemeFontSizeOverride("font_size", 10);
+        _hoverHintLabel.AddThemeFontSizeOverride("font_size", BumpFont(10));
         _hoverHintLabel.AddThemeColorOverride("font_color", new Color("8DB1D4"));
         content.AddChild(_hoverHintLabel);
     }
@@ -294,7 +329,7 @@ public partial class PartyObserverOverlay : CanvasLayer
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
-        _detailHeadingLabel.AddThemeFontSizeOverride("font_size", 14);
+        _detailHeadingLabel.AddThemeFontSizeOverride("font_size", BumpFont(14));
         _detailHeadingLabel.AddThemeColorOverride("font_color", Colors.White);
         header.AddChild(_detailHeadingLabel);
 
@@ -306,6 +341,7 @@ public partial class PartyObserverOverlay : CanvasLayer
             MouseFilter = Control.MouseFilterEnum.Stop
         };
         closeButton.Pressed += HideDetailPanel;
+        closeButton.AddThemeFontSizeOverride("font_size", BumpFont(10));
         closeButton.AddThemeColorOverride("font_color", new Color("9FC5E9"));
         header.AddChild(closeButton);
         _detailCloseButton = closeButton;
@@ -314,7 +350,7 @@ public partial class PartyObserverOverlay : CanvasLayer
         {
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        _detailScreenLabel.AddThemeFontSizeOverride("font_size", 11);
+        _detailScreenLabel.AddThemeFontSizeOverride("font_size", BumpFont(11));
         _detailScreenLabel.AddThemeColorOverride("font_color", new Color("9FC0DD"));
         content.AddChild(_detailScreenLabel);
 
@@ -323,7 +359,7 @@ public partial class PartyObserverOverlay : CanvasLayer
             MouseFilter = Control.MouseFilterEnum.Ignore,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
-        _detailDescriptionLabel.AddThemeFontSizeOverride("font_size", 11);
+        _detailDescriptionLabel.AddThemeFontSizeOverride("font_size", BumpFont(11));
         _detailDescriptionLabel.AddThemeColorOverride("font_color", new Color("D8E6F2"));
         content.AddChild(_detailDescriptionLabel);
 
@@ -571,7 +607,7 @@ public partial class PartyObserverOverlay : CanvasLayer
             Text = string.IsNullOrWhiteSpace(option.Tag) ? "?" : PartyObserverText.LocalizeTag(option.Tag),
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        fallbackLabel.AddThemeFontSizeOverride("font_size", 10);
+        fallbackLabel.AddThemeFontSizeOverride("font_size", BumpFont(10));
         fallbackLabel.AddThemeColorOverride("font_color", new Color("CBE1F4"));
         return fallbackLabel;
     }
@@ -632,7 +668,7 @@ public partial class PartyObserverOverlay : CanvasLayer
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        titleLabel.AddThemeFontSizeOverride("font_size", 12);
+        titleLabel.AddThemeFontSizeOverride("font_size", BumpFont(12));
         titleLabel.AddThemeColorOverride("font_color", Colors.White);
         content.AddChild(titleLabel);
 
@@ -644,7 +680,7 @@ public partial class PartyObserverOverlay : CanvasLayer
                 AutowrapMode = TextServer.AutowrapMode.WordSmart,
                 MouseFilter = Control.MouseFilterEnum.Ignore
             };
-            subtitleLabel.AddThemeFontSizeOverride("font_size", 10);
+            subtitleLabel.AddThemeFontSizeOverride("font_size", BumpFont(10));
             subtitleLabel.AddThemeColorOverride("font_color", new Color("9BC0DD"));
             content.AddChild(subtitleLabel);
         }
@@ -655,9 +691,10 @@ public partial class PartyObserverOverlay : CanvasLayer
             {
                 Text = option.Description,
                 AutowrapMode = TextServer.AutowrapMode.WordSmart,
-                MouseFilter = Control.MouseFilterEnum.Ignore
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
             };
-            descriptionLabel.AddThemeFontSizeOverride("font_size", 10);
+            descriptionLabel.AddThemeFontSizeOverride("font_size", BumpFont(10));
             descriptionLabel.AddThemeColorOverride("font_color", new Color("D6E4F0"));
             content.AddChild(descriptionLabel);
         }
@@ -673,7 +710,7 @@ public partial class PartyObserverOverlay : CanvasLayer
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        label.AddThemeFontSizeOverride("font_size", 11);
+        label.AddThemeFontSizeOverride("font_size", BumpFont(11));
         label.AddThemeColorOverride("font_color", new Color("B8CBDE"));
         return label;
     }
@@ -860,11 +897,17 @@ public partial class PartyObserverOverlay : CanvasLayer
         return new Rect2(rect.Position - offset, rect.Size + offset * 2f);
     }
 
+    private static bool IsPointInsideVisiblePanel(Control? panel, Vector2 point)
+    {
+        return panel?.Visible == true && panel.GetGlobalRect().HasPoint(point);
+    }
+
     private static string GetSnapshotSummaryTitle(PartyObserverChoiceSnapshot snapshot)
     {
         return snapshot.Kind switch
         {
             PartyObserverChoiceSnapshotKind.Rewards => PartyObserverText.ReviewingRewards(),
+            PartyObserverChoiceSnapshotKind.RelicSelection => PartyObserverText.ChoosingRelic(),
             PartyObserverChoiceSnapshotKind.CardRewardSelection => PartyObserverText.ChoosingCard(),
             _ => snapshot.Title
         };
@@ -875,6 +918,7 @@ public partial class PartyObserverOverlay : CanvasLayer
         return snapshot.Kind switch
         {
             PartyObserverChoiceSnapshotKind.Rewards => PartyObserverText.FormatRewardsCount(snapshot.Options.Count),
+            PartyObserverChoiceSnapshotKind.RelicSelection => PartyObserverText.FormatRelicOptionsCount(snapshot.Options.Count),
             PartyObserverChoiceSnapshotKind.CardRewardSelection => PartyObserverText.FormatCardOptionsCount(snapshot.Options.Count),
             PartyObserverChoiceSnapshotKind.EventChoices => PartyObserverText.FormatEventOptionsCount(snapshot.Options.Count),
             _ => snapshot.Description

@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.CardRewardAlternatives;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.Events;
 using MegaCrit.Sts2.Core.Rewards;
@@ -92,6 +93,69 @@ internal static class PartyObserverChoiceSnapshotBuilder
         return snapshot;
     }
 
+    public static PartyObserverChoiceSnapshot BuildRelicSelection(IReadOnlyList<RelicModel> relics)
+    {
+        var snapshot = new PartyObserverChoiceSnapshot
+        {
+            Kind = PartyObserverChoiceSnapshotKind.RelicSelection,
+            ScreenLabel = PartyObserverChoiceSnapshotKind.RelicSelection.GetDisplayName(),
+            Title = PartyObserverText.ChoosingRelic(),
+            Description = PartyObserverText.FormatRelicOptionsCount(relics.Count)
+        };
+
+        foreach (var relic in relics)
+        {
+            snapshot.AddOption(new PartyObserverChoiceOption
+            {
+                Title = Sanitize(PartyObserverGameText.ResolveRelicTitle(relic)),
+                Subtitle = $"{PartyObserverText.GetRelicRarity(relic.Rarity)} {PartyObserverText.Relic()}",
+                Description = Sanitize(PartyObserverGameText.ResolveRelicDescription(relic)),
+                Tag = PartyObserverText.RelicTagKey,
+                ImagePath = PartyObserverGameText.ResolveRelicImagePath(relic)
+            });
+        }
+
+        return snapshot;
+    }
+
+    public static PartyObserverChoiceSnapshot BuildMerchantInventory(MerchantInventory inventory)
+    {
+        var options = new List<PartyObserverChoiceOption>();
+
+        options.AddRange(inventory.CharacterCardEntries
+            .Where(static entry => entry.CreationResult is not null)
+            .Select(BuildMerchantCardOption));
+        options.AddRange(inventory.ColorlessCardEntries
+            .Where(static entry => entry.CreationResult is not null)
+            .Select(BuildMerchantCardOption));
+        options.AddRange(inventory.RelicEntries
+            .Where(static entry => entry.Model is not null)
+            .Select(BuildMerchantRelicOption));
+        options.AddRange(inventory.PotionEntries
+            .Where(static entry => entry.Model is not null)
+            .Select(BuildMerchantPotionOption));
+
+        if (inventory.CardRemovalEntry is not null)
+        {
+            options.Add(BuildMerchantCardRemovalOption(inventory.CardRemovalEntry));
+        }
+
+        var snapshot = new PartyObserverChoiceSnapshot
+        {
+            Kind = PartyObserverChoiceSnapshotKind.MerchantInventory,
+            ScreenLabel = PartyObserverChoiceSnapshotKind.MerchantInventory.GetDisplayName(),
+            Title = PartyObserverText.BrowsingShop(),
+            Description = PartyObserverText.FormatShopInventory(inventory.Player.Gold, options.Count)
+        };
+
+        foreach (var option in options)
+        {
+            snapshot.AddOption(option);
+        }
+
+        return snapshot;
+    }
+
     private static PartyObserverChoiceOption BuildCardOption(CardCreationResult result)
     {
         var card = result.Card;
@@ -137,6 +201,7 @@ internal static class PartyObserverChoiceSnapshotBuilder
         return reward switch
         {
             RelicReward relicReward => BuildRelicRewardOption(relicReward),
+            PotionReward potionReward => BuildPotionRewardOption(potionReward),
             CardReward cardReward => BuildCardRewardOption(cardReward),
             _ => new PartyObserverChoiceOption
             {
@@ -168,11 +233,30 @@ internal static class PartyObserverChoiceSnapshotBuilder
         };
     }
 
+    private static PartyObserverChoiceOption BuildPotionRewardOption(PotionReward reward)
+    {
+        var potion = reward.Potion;
+        return new PartyObserverChoiceOption
+        {
+            Title = potion is null
+                ? PartyObserverText.PotionReward()
+                : Sanitize(PartyObserverGameText.ResolvePotionTitle(potion)),
+            Subtitle = PartyObserverText.PotionReward(),
+            Description = potion is null
+                ? BuildRewardDescription(reward)
+                : Sanitize(PartyObserverGameText.ResolvePotionDescription(potion)),
+            Tag = PartyObserverText.PotionTagKey,
+            ImagePath = potion is null
+                ? ResolveRewardIconPath(reward)
+                : PartyObserverGameText.ResolvePotionImagePath(potion)
+        };
+    }
+
     private static PartyObserverChoiceOption BuildCardRewardOption(CardReward reward)
     {
         var cardResults = GetCardRewardCards(reward);
         var previewTitles = cardResults
-            .Select(result => Sanitize(result.Card.Title))
+            .Select(result => Sanitize(PartyObserverGameText.ResolveCardTitle(result.Card)))
             .Where(title => !string.IsNullOrWhiteSpace(title))
             .Take(3)
             .ToList();
@@ -275,6 +359,105 @@ internal static class PartyObserverChoiceSnapshotBuilder
         }
 
         return string.Join(" - ", pieces);
+    }
+
+    private static PartyObserverChoiceOption BuildMerchantCardOption(MerchantCardEntry entry)
+    {
+        var result = entry.CreationResult
+            ?? throw new InvalidOperationException("Merchant card entry does not have a card.");
+        var card = result.Card;
+        var subtitlePieces = new List<string>
+        {
+            PartyObserverText.GetCardType(card.Type),
+            PartyObserverText.GetCardRarity(card.Rarity),
+            PartyObserverText.FormatCost(DescribeCardCost(card)),
+            PartyObserverText.FormatGoldAmount(entry.Cost)
+        };
+
+        if (result.HasBeenModified)
+        {
+            subtitlePieces.Add(PartyObserverText.Modified());
+        }
+
+        if (entry.IsOnSale)
+        {
+            subtitlePieces.Add(PartyObserverText.OnSale());
+        }
+
+        return new PartyObserverChoiceOption
+        {
+            Title = Sanitize(PartyObserverGameText.ResolveCardTitle(card)),
+            Subtitle = string.Join(" - ", subtitlePieces),
+            Description = Sanitize(PartyObserverGameText.ResolveCardDescription(card)),
+            Tag = PartyObserverText.CardTagKey,
+            ImagePath = PartyObserverGameText.ResolveCardImagePath(card),
+            IsDisabled = !entry.EnoughGold
+        };
+    }
+
+    private static PartyObserverChoiceOption BuildMerchantRelicOption(MerchantRelicEntry entry)
+    {
+        var relic = entry.Model
+            ?? throw new InvalidOperationException("Merchant relic entry does not have a relic.");
+
+        return new PartyObserverChoiceOption
+        {
+            Title = Sanitize(PartyObserverGameText.ResolveRelicTitle(relic)),
+            Subtitle = string.Join(" - ", new[]
+            {
+                $"{PartyObserverText.GetRelicRarity(relic.Rarity)} {PartyObserverText.Relic()}",
+                PartyObserverText.FormatGoldAmount(entry.Cost)
+            }),
+            Description = Sanitize(PartyObserverGameText.ResolveRelicDescription(relic)),
+            Tag = PartyObserverText.RelicTagKey,
+            ImagePath = PartyObserverGameText.ResolveRelicImagePath(relic),
+            IsDisabled = !entry.EnoughGold
+        };
+    }
+
+    private static PartyObserverChoiceOption BuildMerchantPotionOption(MerchantPotionEntry entry)
+    {
+        var potion = entry.Model
+            ?? throw new InvalidOperationException("Merchant potion entry does not have a potion.");
+
+        return new PartyObserverChoiceOption
+        {
+            Title = Sanitize(PartyObserverGameText.ResolvePotionTitle(potion)),
+            Subtitle = string.Join(" - ", new[]
+            {
+                $"{PartyObserverText.GetPotionRarity(potion.Rarity)} {PartyObserverText.Potion()}",
+                PartyObserverText.FormatGoldAmount(entry.Cost)
+            }),
+            Description = Sanitize(PartyObserverGameText.ResolvePotionDescription(potion)),
+            Tag = PartyObserverText.PotionTagKey,
+            ImagePath = PartyObserverGameText.ResolvePotionImagePath(potion),
+            IsDisabled = !entry.EnoughGold
+        };
+    }
+
+    private static PartyObserverChoiceOption BuildMerchantCardRemovalOption(MerchantCardRemovalEntry entry)
+    {
+        var subtitlePieces = new List<string>
+        {
+            PartyObserverText.ShopService(),
+            PartyObserverText.FormatGoldAmount(entry.Cost)
+        };
+
+        if (entry.Used)
+        {
+            subtitlePieces.Add(PartyObserverText.Used());
+        }
+
+        return new PartyObserverChoiceOption
+        {
+            Title = PartyObserverText.CardRemoval(),
+            Subtitle = string.Join(" - ", subtitlePieces),
+            Description = entry.Used
+                ? PartyObserverText.CardRemovalUsedDescription()
+                : PartyObserverText.CardRemovalDescription(),
+            Tag = PartyObserverText.ActionTagKey,
+            IsDisabled = entry.Used || !entry.EnoughGold
+        };
     }
 
     private static string DescribeCardCost(CardModel card)

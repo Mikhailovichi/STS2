@@ -1,3 +1,4 @@
+using System.Reflection;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Localization.DynamicVars;
@@ -42,8 +43,9 @@ internal static class PartyObserverGameText
     {
         return FirstNonEmpty(
                    ResolveLocString(relic.DynamicDescription, relic.DynamicVars),
-                   ResolveLocString(relic.Description, relic.DynamicVars),
-                   ResolveLocString(relic.DynamicEventDescription, relic.DynamicVars))
+                   ResolveLocString(TryGetRelicLocString(relic, "Description"), relic.DynamicVars),
+                   ResolveLocString(relic.DynamicEventDescription, relic.DynamicVars),
+                   ResolveLocString(TryGetRelicLocString(relic, "EventDescription"), relic.DynamicVars))
                ?? string.Empty;
     }
 
@@ -54,9 +56,26 @@ internal static class PartyObserverGameText
             relic.PackedIconPath) ?? string.Empty;
     }
 
-    public static string ResolveLocString(LocString locString, DynamicVarSet? dynamicVars = null)
+    public static string ResolvePotionTitle(PotionModel potion)
     {
-        if (LocString.IsNullOrWhitespace(locString))
+        return ResolveLocString(potion.Title, potion.DynamicVars);
+    }
+
+    public static string ResolvePotionDescription(PotionModel potion)
+    {
+        return ResolveLocString(potion.DynamicDescription, potion.DynamicVars);
+    }
+
+    public static string ResolvePotionImagePath(PotionModel potion)
+    {
+        return FirstNonEmpty(
+            potion.ImagePath,
+            potion.OutlinePath) ?? string.Empty;
+    }
+
+    public static string ResolveLocString(LocString? locString, DynamicVarSet? dynamicVars = null)
+    {
+        if (locString is null || LocString.IsNullOrWhitespace(locString))
         {
             return string.Empty;
         }
@@ -122,6 +141,28 @@ internal static class PartyObserverGameText
             if (!string.IsNullOrWhiteSpace(candidate))
             {
                 return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static LocString? TryGetRelicLocString(RelicModel relic, string propertyName)
+    {
+        for (var type = relic.GetType(); type is not null; type = type.BaseType)
+        {
+            try
+            {
+                var property = type.GetProperty(
+                    propertyName,
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                if (property?.GetValue(relic) is LocString locString)
+                {
+                    return locString;
+                }
+            }
+            catch
+            {
             }
         }
 

@@ -1,43 +1,110 @@
 # CombatQuill
 
-`CombatQuill` is the first production mod in this workspace.
+`CombatQuill` 鏄竴涓负銆奡lay the Spire 2銆嬪埗浣滅殑鑱旀満缁樺浘涓庢垬鏈爣璁版ā缁勩€?瀹冧細鍦ㄦ垬鏂楃晫闈㈠拰鍙€夌殑濂栧姳鐣岄潰閲屽姞鍏ヤ竴濂楀畼鏂归鏍肩殑缇芥瘺绗斿伐鍏锋爮锛岃闃熷弸鍙互涓€杈规墦鐗屼竴杈规爣璁扮洰鏍囥€佽矾绾裤€佷紭鍏堢骇鍜屾敞鎰忎簨椤广€?
+## 褰撳墠鐗堟湰浜偣
 
-## Current State
+- 鏀寔鎴樻枟鐣岄潰缁樺浘锛屼篃鍙互鍦ㄨ缃腑淇濈暀濂栧姳鐣岄潰鏀寔
+- 浣跨敤瀹樻柟椋庢牸鐨勭窘姣涚瑪銆佹鐨拰娓呯┖宸ュ叿鍥炬爣
+- 榛樿浣跨敤 `Ctrl` 浣滀负瑙﹀彂鐑敭锛屽苟鏀寔 `鎸変綇瑙﹀彂` 涓?`鐐规寜瑙﹀彂`
+- 婵€娲荤窘姣涚瑪鍚庝娇鐢?`宸﹂敭鎷栧姩` 缁樺浘锛屼笉鍐嶅崰鐢ㄦ父鎴忓師鐢熷彸閿彇娑?鏌ョ湅鍗囩骇鍔熻兘
+- 鏀寔鑱旀満鍚屾绗旇抗銆佹竻绌烘搷浣溿€佺粯鍥炬ā寮忓拰鏍峰紡
+- 鏀寔棰滆壊銆佺瑪瑙︾矖缁嗐€侀€忔槑搴︺€佹鐨搴︺€佸伐鍏锋爮浣嶇疆绛夎缃繚瀛?
+## 瀹夎鏁欑▼
 
-- Battle UI lifecycle patch is installed.
-- A battle-safe drawing overlay is live.
-- The overlay now uses an official map-style toolbar in combat.
-- Official quill / eraser / clear icons are reused.
-- Official quill / eraser cursor assets are reused while a tool is active.
-- Build and publish are wired to output `.dll + .pck + manifest + settings`.
+1. 瀹屽叏閫€鍑烘父鎴忋€?2. 瑙ｅ帇鍙戝竷鍖呫€?3. 灏嗗彂甯冨寘涓殑 `mods\CombatQuill` 鏂囦欢澶瑰鍒跺埌娓告垙鏍圭洰褰曚笅鐨?`mods` 鏂囦欢澶逛腑銆?4. 瀹夎瀹屾垚鍚庯紝鐩綍缁撴瀯搴斿綋绫讳技锛?
+```text
+Slay the Spire 2
+鈹斺攢 mods
+   鈹斺攢 CombatQuill
+      鈹溾攢 CombatQuill.dll
+      鈹溾攢 CombatQuill.pck
+      鈹溾攢 combatquill.settings
+      鈹斺攢 mod_manifest.json
+```
 
-## Current Controls
+5. 鍚姩娓告垙锛岀‘璁ゆā缁勫凡鍔犺浇銆?
+濡傛灉浣犳槸绗竴娆＄粰娓告垙瑁呮ā缁勶紝娌℃湁鐜版垚鐨?`mods` 鏂囦欢澶癸紝鐩存帴鎵嬪姩鍒涘缓涓€涓嵆鍙€?
+## 濡備綍浣跨敤
 
-- `F8`: toggle CombatQuill on or off
-- `Middle Mouse Drag`: draw or erase, depending on the selected tool
-- `E`: swap between quill and eraser
-- `F9`: clear the current combat canvas
-- `Esc`: exit CombatQuill tool mode
-- Toolbar buttons: select quill, eraser, or clear with the mouse
+### 榛樿鎿嶄綔
 
-## Why The Input Differs From The Map Screen
+- `F8`锛氬垏鎹㈢窘姣涚瑪甯搁┗妯″紡
+- `Ctrl`锛氫复鏃惰Е鍙戠窘姣涚瑪
+- `宸﹂敭鎷栧姩`锛氬湪缇芥瘺绗旀縺娲绘椂缁樺浘鎴栨摝闄?- `E`锛氬湪缇芥瘺绗斿拰姗＄毊涔嬮棿鍒囨崲
+- `F9`锛氭竻绌哄綋鍓嶇晫闈㈢殑鍏ㄩ儴绗旇抗
+- `Esc`锛氶€€鍑哄綋鍓嶇窘姣涚瑪鐘舵€侊紝鎴栧彇娑堢偣鎸夎Е鍙戠殑閿佸畾鐘舵€?
+### 鎺ㄨ崘浣跨敤鏂瑰紡
 
-The toolbar is intentionally map-like, but the drawing input is battle-safe.
+1. 鎴樻枟涓渶瑕佷复鏃舵爣璁版椂锛屾寜浣忛粯璁ょ儹閿?`Ctrl`銆?2. 鍦ㄧ儹閿敓鏁堟湡闂达紝鐢?`宸﹂敭鎷栧姩` 杩涜缁樺浘銆?3. 鏉惧紑 `Ctrl` 鍚庝細鍥炲埌鏅€氭搷浣滐紝涓嶅奖鍝嶅師鐗堝彸閿彇娑堜笌鏌ョ湅鍗囩骇銆?
+### 宸ュ叿鏍忎笌璁剧疆
 
-- We keep drawing on `Middle Mouse` by default.
-- This avoids stealing the game's normal left-click card drag flow.
-- The toolbar still gives the same official tool semantics: quill, eraser, clear.
+- 鐐瑰嚮缇芥瘺绗斿浘鏍囪繘鍏ョ粯鍥炬ā寮?- 鐐瑰嚮姗＄毊鍥炬爣杩涘叆鎿﹂櫎妯″紡
+- 鐐瑰嚮娓呯┖鍥炬爣娓呴櫎褰撳墠鐣岄潰鐨勬墍鏈夌嚎鏉?- 鐐瑰嚮榻胯疆鎸夐挳鎵撳紑璁剧疆闈㈡澘
 
-## Current Limitations
+璁剧疆闈㈡澘褰撳墠鏀寔锛?
+- 瑙﹀彂閿嚜瀹氫箟
+- `鎸変綇瑙﹀彂` / `鐐规寜瑙﹀彂` 鍒囨崲
+- 棰滆壊閫夋嫨
+- 绗旇Е绮楃粏
+- 绗旇Е閫忔槑搴?- 宸ュ叿鏍忛€忔槑搴?- 姗＄毊瀹藉害
 
-- No multiplayer stroke sync yet
-- No controller workflow yet
-- No persistence across combats yet
-- No direct reuse of the full map `NMapDrawingInput` network flow yet
+璇存槑锛?
+- `鎸変綇瑙﹀彂` 閫傚悎涓存椂鏍囨敞锛岄粯璁ゅ氨鏄繖涓ā寮?- `鐐规寜瑙﹀彂` 閫傚悎闀挎椂闂存寔缁爣娉紝鍐嶆寜涓€娆″悓涓€涓儹閿嵆鍙叧闂?- 宸ュ叿鍥炬爣鏈韩鐨勯珮浜氨浠ｈ〃褰撳墠缇芥瘺绗旀槸鍚﹀凡缁忓疄闄呯敓鏁?
+## 瀛樻。涓庤缃縼绉绘暀绋?
+### 鍏堣缁撹
 
-## Build
+`CombatQuill` 鏈韩涓嶄細鍒涘缓鍗曠嫭鐨勬父鎴忚繘搴﹀瓨妗ｏ紝瀹冧富瑕佷繚瀛樼殑鏄ā缁勮缃€?濡傛灉浣犳槸浠庡師鐗堟父鎴忓垏鍒?Mod 鐗堢户缁帺锛岄渶瑕佽縼绉荤殑鏄父鎴忓瓨妗ｇ洰褰曪紱
+濡傛灉浣犲彧鏄崲鐢佃剳鎴栭噸瑁呮父鎴忥紝鎯充繚鐣欑窘姣涚瑪鍋忓ソ锛岄澶栧鍒朵竴浠?`combatquill.settings` 灏卞浜嗐€?
+### 浠庡師鐗堝瓨妗ｈ縼绉诲埌 Mod 鐗?
+1. 鍏堝惎鍔ㄤ竴娆″甫 Mod 鐨勬父鎴忥紝鍐嶉€€鍑轰竴娆°€?2. 杩欐牱娓告垙浼氳嚜鍔ㄥ垱寤?Mod 瀛樻。鐩綍锛?
+```text
+%APPDATA%\SlayTheSpire2\steam\<浣犵殑SteamID>\modded\profile1
+```
 
-- Run `../build-combatquill.ps1` for a local build.
-- Run `../build-combatquill.ps1 -Publish` to export the `.pck` as well.
-- Local `.NET 9 SDK` lives under `modding/.tools/dotnet9/`.
-- Local Godot `4.5.1 mono` lives under `modding/.tools/godot451/`.
+3. 灏嗗師鐗堝搴旀。浣嶄腑鐨勮繖浜涙枃浠跺鍒跺埌 `modded\profileX` 瀵瑰簲浣嶇疆锛?
+- `progress.save`
+- `progress.save.backup`
+- `prefs.save`
+- `prefs.save.backup`
+
+4. 濡傛灉浣犺繕鎯虫妸褰撳墠姝ｅ湪杩涜鐨勪竴灞€涔熷甫杩囧幓锛屽啀棰濆澶嶅埗锛?
+- `current_run.save`
+- `current_run.save.backup`
+
+5. 濡傛灉浣犺繕鎯宠縼绉诲巻鍙茶褰曞拰鍥炴斁锛屽啀棰濆澶嶅埗锛?
+- `history`
+- `replays`
+
+甯歌鐩綍瀵圭収锛?
+```text
+鍘熺増: %APPDATA%\SlayTheSpire2\steam\<SteamID>\profile1
+Mod : %APPDATA%\SlayTheSpire2\steam\<SteamID>\modded\profile1
+```
+
+### 鍙縼绉荤窘姣涚瑪璁剧疆
+
+濡傛灉浣犲彧鎯充繚鐣欑窘姣涚瑪鐨勭儹閿€佽Е鍙戞ā寮忋€侀鑹插拰宸ュ叿鏍忎綅缃紝鎶婁笅闈㈣繖涓枃浠跺鍒跺埌鏂扮幆澧冨嵆鍙細
+
+```text
+<娓告垙鐩綍>\mods\CombatQuill\combatquill.settings
+```
+
+### 濡傛灉褰撳墠杩涜涓殑涓€灞€璇诲彇澶辫触
+
+澶у鏁版儏鍐典笅锛屽潖鎺夌殑鏄?`current_run.save`锛屼笉鏄綘鐨勬暣浣撹繘搴︺€?閬囧埌杩欑鎯呭喌鍙互鍙垹闄?Mod 妗ｄ綅閲岀殑锛?
+- `current_run.save`
+- `current_run.save.backup`
+
+鐒跺悗閲嶆柊杩涘叆娓告垙锛岄暱鏈熻繘搴﹂€氬父浠嶇劧鍙互淇濅綇銆?
+## 宸茬煡璇存槑
+
+- 杩欎釜妯＄粍鏇村亸鍚戞垬鏂椾氦娴佸拰鍗虫椂鏍囪锛屼笉浼氭妸绾挎潯璺ㄦ垬鏂楅暱鏈熶繚瀛?- 宸ュ叿鏍忎笌杈撳叆閫昏緫宸茬粡灏介噺璐磋繎鍘熺増鍦板浘缁樺浘浣撻獙锛屼絾浼氫紭鍏堥伩寮€鎴樻枟閲岀殑鍘熺敓杈撳叆鍐茬獊
+
+## 鏋勫缓涓庡彂甯?
+- 鏈湴鏋勫缓锛氳繍琛?`modding\build-combatquill.ps1`
+- 鏋勫缓骞跺鍑?`.pck`锛氳繍琛?`modding\build-combatquill.ps1 -Publish`
+- 鎵撳寘涓婁紶鍘嬬缉鍖咃細杩愯 `modding\package-upload-zips.ps1`
+
+鏈伐浣滃尯鍐呯疆锛?
+- `.NET 9 SDK`锛歚modding\.tools\dotnet9\`
+- `Godot 4.5.1 mono`锛歚modding\.tools\godot451\`

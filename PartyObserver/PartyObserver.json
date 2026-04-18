@@ -1,0 +1,11 @@
+{
+  "id": "PartyObserver",
+  "name": "PartyObserver",
+  "author": "",
+  "description": "Sync teammates' card and event choices into a compact observer panel.",
+  "version": "0.1.1",
+  "has_pck": true,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": false
+}

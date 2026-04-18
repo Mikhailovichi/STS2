@@ -22,9 +22,9 @@ public static class RewardsScreenLifecyclePatch
     }
 
     [HarmonyPostfix]
-    [HarmonyPatch(nameof(NRewardsScreen._ExitTree))]
-    private static void AfterRewardsScreenExitTree()
+    [HarmonyPatch(nameof(NRewardsScreen.AfterOverlayShown))]
+    private static void AfterRewardsOverlayShown(NRewardsScreen __instance)
     {
-        PartyObserverRegistry.ClearLocalSnapshot();
+        PartyObserverService.UpdateRewardsSnapshot(__instance);
     }
 }

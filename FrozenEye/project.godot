@@ -1,0 +1,18 @@
+; Engine configuration file.
+; This project exists so the mod can export a .pck alongside the C# assembly.
+
+config_version=5
+
+[application]
+
+config/name="Frozen Eye"
+config/features=PackedStringArray("4.5", "C#", "Mobile")
+config/icon="res://icon.svg"
+
+[dotnet]
+
+project/assembly_name="FrozenEye"
+
+[rendering]
+
+renderer/rendering_method="mobile"

@@ -14,6 +14,6 @@ public partial class MainFile : Node
         GD.Print($"{ModId}: initializing");
 
         var harmony = new Harmony(ModId);
-        harmony.PatchAll();
+        harmony.PatchAll(typeof(MainFile).Assembly);
     }
 }

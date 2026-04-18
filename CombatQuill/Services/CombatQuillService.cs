@@ -21,6 +21,11 @@ internal static class CombatQuillService
         CombatQuillStyleRegistry.BindToNetService(RunManager.Instance.IsInProgress ? RunManager.Instance.NetService : null);
     }
 
+    public static void ClearRunContext()
+    {
+        CombatQuillStyleRegistry.BindToNetService(null);
+    }
+
     public static void AttachOverlay(NCombatUi combatUi)
     {
         AttachOverlay(combatUi, CombatQuillScreenKind.Combat);
@@ -43,11 +48,48 @@ internal static class CombatQuillService
         CombatQuillStyleRegistry.UpdateLocalFromSettings(settings, broadcastStyle);
     }
 
+    public static bool TryEnsureOverlaysForCurrentRun()
+    {
+        var settings = CombatQuillSettingsStore.Load();
+        if (!settings.Enabled)
+        {
+            InitializeRunContext();
+            return false;
+        }
+
+        InitializeRunContext();
+
+        if (!RunManager.Instance.IsInProgress || NRun.Instance is null)
+        {
+            return false;
+        }
+
+        var attachedAny = false;
+
+        foreach (var combatUi in EnumerateNodes<NCombatUi>(NRun.Instance))
+        {
+            AttachOverlay(combatUi);
+            attachedAny = true;
+        }
+
+        if (settings.EnableInRewards)
+        {
+            foreach (var rewardsScreen in EnumerateNodes<NRewardsScreen>(NRun.Instance))
+            {
+                AttachOverlay(rewardsScreen);
+                attachedAny = true;
+            }
+        }
+
+        return attachedAny;
+    }
+
     private static void AttachOverlay(Control screenRoot, CombatQuillScreenKind screenKind)
     {
         var settings = CombatQuillSettingsStore.Load();
         if (!settings.Enabled)
         {
+            GD.Print($"{MainFile.ModId}: skipped attach for {screenKind.GetDisplayName()} because mod is disabled in settings");
             return;
         }
 
@@ -81,5 +123,21 @@ internal static class CombatQuillService
         }
 
         settings.SaveCharacterColorProfile(context.CharacterKey, context.DefaultColorHtml);
+    }
+
+    private static IEnumerable<TNode> EnumerateNodes<TNode>(Node root) where TNode : class
+    {
+        if (root is TNode typedRoot)
+        {
+            yield return typedRoot;
+        }
+
+        foreach (Node child in root.GetChildren())
+        {
+            foreach (var nestedMatch in EnumerateNodes<TNode>(child))
+            {
+                yield return nestedMatch;
+            }
+        }
     }
 }

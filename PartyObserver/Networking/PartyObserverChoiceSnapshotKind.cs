@@ -4,8 +4,10 @@ internal enum PartyObserverChoiceSnapshotKind
 {
     None,
     Rewards,
+    RelicSelection,
     CardRewardSelection,
-    EventChoices
+    EventChoices,
+    MerchantInventory
 }
 
 internal static class PartyObserverChoiceSnapshotKindExtensions

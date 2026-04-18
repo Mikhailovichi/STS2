@@ -7,6 +7,7 @@
 - Adds a compact teammate observer panel to supported run screens.
 - Lets you inspect synced teammate `card reward selection` choices.
 - Lets you inspect synced teammate `event` options.
+- Lets you inspect synced teammate `shop` inventory and prices.
 - Falls back to showing the teammate's current multiplayer screen type when detailed choices are not synced.
 
 ## Current UI
@@ -21,9 +22,10 @@
 - Rewards screen
 - Card reward selection screen
 - Event room
+- Shop screen
 
 ## Limitations
 
 - This is not a full remote screen mirror.
-- Shop, campfire, transform, removal, upgrade, and map choices are not synced yet.
+- Campfire, transform, removal, upgrade, and map choices are not synced yet.
 - Unsupported screens currently show status only.

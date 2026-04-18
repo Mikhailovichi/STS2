@@ -32,8 +32,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="CombatQuill.json" />
     <None Include="mod_manifest.json" />
-    <None Include="combatquill.settings.json" />
+    <None Include="combatquill.settings" />
     <None Include="project.godot" />
     <None Include="README.md" />
     <None Include="CombatQuill\**" />
@@ -42,8 +43,7 @@
   <Target Name="CopyToModsFolderOnBuild" AfterTargets="Build">
     <MakeDir Directories="$(ModOutputDir)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModOutputDir)" />
-    <Copy SourceFiles="mod_manifest.json" DestinationFolder="$(ModOutputDir)" />
-    <Copy SourceFiles="combatquill.settings.json" DestinationFolder="$(ModOutputDir)" />
+    <Copy SourceFiles="CombatQuill.json" DestinationFolder="$(ModOutputDir)" />
   </Target>
 
   <Target

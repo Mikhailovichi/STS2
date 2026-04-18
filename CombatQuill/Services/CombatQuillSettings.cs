@@ -106,6 +106,12 @@ internal sealed class CombatQuillCharacterColorProfile
     }
 }
 
+internal enum CombatQuillActivationTriggerMode
+{
+    Hold,
+    Toggle
+}
+
 internal sealed class CombatQuillSettings
 {
     public bool Enabled { get; set; } = true;
@@ -123,6 +129,10 @@ internal sealed class CombatQuillSettings
     public string ClearKey { get; set; } = nameof(Key.F9);
 
     public string EraserKey { get; set; } = nameof(Key.E);
+
+    public string ActivationKey { get; set; } = nameof(Key.Ctrl);
+
+    public string ActivationTriggerMode { get; set; } = nameof(CombatQuillActivationTriggerMode.Hold);
 
     public string DrawButton { get; set; } = nameof(MouseButton.Right);
 
@@ -171,6 +181,16 @@ internal sealed class CombatQuillSettings
     public Key GetEraserKey()
     {
         return ParseEnum(EraserKey, Key.E);
+    }
+
+    public Key GetActivationKey()
+    {
+        return ParseEnum(ActivationKey, Key.Ctrl);
+    }
+
+    public CombatQuillActivationTriggerMode GetActivationTriggerMode()
+    {
+        return ParseEnum(ActivationTriggerMode, CombatQuillActivationTriggerMode.Hold);
     }
 
     public MouseButton GetDrawButton()
@@ -274,6 +294,10 @@ internal sealed class CombatQuillSettings
         ToggleKey = string.IsNullOrWhiteSpace(ToggleKey) ? nameof(Key.F8) : ToggleKey;
         ClearKey = string.IsNullOrWhiteSpace(ClearKey) ? nameof(Key.F9) : ClearKey;
         EraserKey = string.IsNullOrWhiteSpace(EraserKey) ? nameof(Key.E) : EraserKey;
+        ActivationKey = string.IsNullOrWhiteSpace(ActivationKey) ? nameof(Key.Ctrl) : ActivationKey;
+        ActivationTriggerMode = string.IsNullOrWhiteSpace(ActivationTriggerMode)
+            ? nameof(CombatQuillActivationTriggerMode.Hold)
+            : ActivationTriggerMode;
         DrawButton = string.IsNullOrWhiteSpace(DrawButton) ? nameof(MouseButton.Right) : DrawButton;
         StrokeColorHtml = GetSelectedColorHtml().TrimStart('#');
         StrokeWidth = GetStrokeWidth();

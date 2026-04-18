@@ -1,0 +1,11 @@
+{
+  "id": "RelicRpsChoice",
+  "name": "Relic RPS Choice",
+  "author": "",
+  "description": "Adds manual rock-paper-scissors selection to shared relic fights in multiplayer treasure rooms.",
+  "version": "0.1.0",
+  "has_pck": false,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": true
+}

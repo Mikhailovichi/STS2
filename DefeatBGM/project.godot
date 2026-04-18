@@ -1,0 +1,18 @@
+; Engine configuration file.
+; This project only exists so the mod loader can consume a matching .pck.
+
+config_version=5
+
+[application]
+
+config/name="DefeatBGM"
+config/features=PackedStringArray("4.5", "C#", "Mobile")
+config/icon="res://icon.svg"
+
+[dotnet]
+
+project/assembly_name="DefeatBGM"
+
+[rendering]
+
+renderer/rendering_method="mobile"

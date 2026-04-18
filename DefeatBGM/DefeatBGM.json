@@ -1,0 +1,11 @@
+{
+  "id": "DefeatBGM",
+  "name": "DefeatBGM",
+  "author": "",
+  "description": "Replace the default defeat music cue with a custom local track loaded from the mod folder.",
+  "version": "0.1.0",
+  "has_pck": true,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": false
+}

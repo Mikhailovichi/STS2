@@ -1,0 +1,11 @@
+{
+  "id": "FrozenEye",
+  "name": "Frozen Eye",
+  "author": "",
+  "description": "Frozen Eye-style draw pile viewing. Shows the draw pile in real draw order while enabled.",
+  "version": "0.1.0",
+  "has_pck": true,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": false
+}

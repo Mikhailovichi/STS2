@@ -5,6 +5,9 @@ namespace PartyObserver.Services;
 
 internal static class PartyObserverSettingsStore
 {
+    private const string SettingsFileName = "partyobserver.settings";
+    private const string LegacySettingsFileName = "partyobserver.settings.json";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
@@ -20,6 +23,7 @@ internal static class PartyObserverSettingsStore
         }
 
         var path = GetSettingsPath();
+        MigrateLegacySettings(path);
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(directory))
         {
@@ -58,6 +62,29 @@ internal static class PartyObserverSettingsStore
 
     private static string GetSettingsPath()
     {
-        return Path.Combine(AppContext.BaseDirectory, "mods", MainFile.ModId, "partyobserver.settings.json");
+        return Path.Combine(AppContext.BaseDirectory, "mods", MainFile.ModId, SettingsFileName);
+    }
+
+    private static string GetLegacySettingsPath()
+    {
+        return Path.Combine(AppContext.BaseDirectory, "mods", MainFile.ModId, LegacySettingsFileName);
+    }
+
+    private static void MigrateLegacySettings(string path)
+    {
+        var legacyPath = GetLegacySettingsPath();
+        if (File.Exists(path) || !File.Exists(legacyPath))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Move(legacyPath, path);
+        }
+        catch (Exception exception)
+        {
+            GD.PrintErr($"{MainFile.ModId}: failed to migrate legacy settings file: {exception.Message}");
+        }
     }
 }

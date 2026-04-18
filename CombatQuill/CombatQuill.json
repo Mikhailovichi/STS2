@@ -1,0 +1,11 @@
+{
+  "id": "CombatQuill",
+  "name": "CombatQuill",
+  "author": "MitCheese",
+  "description": "Multiplayer drawing and tactical annotation tool.",
+  "version": "0.2.2",
+  "has_pck": true,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": false
+}

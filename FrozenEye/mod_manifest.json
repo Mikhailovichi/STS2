@@ -1,0 +1,8 @@
+{
+  "id": "FrozenEye",
+  "pck_name": "FrozenEye",
+  "name": "Frozen Eye",
+  "author": "",
+  "description": "Frozen Eye-style draw pile viewing. Shows the draw pile in real draw order while enabled.",
+  "version": "0.1.0"
+}

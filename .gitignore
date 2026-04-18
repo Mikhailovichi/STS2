@@ -12,11 +12,16 @@ docs/
 IntentGraph/
 _removed_assets/
 _tmp_inspect_sts2_api/
+_release/
+_workspace/
+_tmp_*/
+mods/
 
 **/.godot/
 **/bin/
 **/obj/
 **/packages/
+**/_out/
 **/build/
 **/backups/
 **/*.pdb

@@ -8,7 +8,7 @@ public class PartyObserverChoiceSnapshotMessage : INetMessage, IPacketSerializab
 {
     private PartyObserverChoiceSnapshot? _snapshot;
 
-    public bool ShouldBroadcast => true;
+    public bool ShouldBroadcast => false;
 
     public NetTransferMode Mode => NetTransferMode.Reliable;
 

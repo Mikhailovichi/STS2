@@ -32,8 +32,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="PartyObserver.json" />
     <None Include="mod_manifest.json" />
-    <None Include="partyobserver.settings.json" />
+    <None Include="partyobserver.settings" />
     <None Include="project.godot" />
     <None Include="README.md" />
   </ItemGroup>
@@ -41,8 +42,7 @@
   <Target Name="CopyToModsFolderOnBuild" AfterTargets="Build">
     <MakeDir Directories="$(ModOutputDir)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModOutputDir)" />
-    <Copy SourceFiles="mod_manifest.json" DestinationFolder="$(ModOutputDir)" />
-    <Copy SourceFiles="partyobserver.settings.json" DestinationFolder="$(ModOutputDir)" />
+    <Copy SourceFiles="PartyObserver.json" DestinationFolder="$(ModOutputDir)" />
   </Target>
 
   <Target

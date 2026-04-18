@@ -46,12 +46,18 @@ public partial class CombatQuillOverlay : CanvasLayer
     private CombatQuillSettings _settings = new();
     private CombatQuillScreenKind _screenKind;
     private CombatQuillDrawings? _drawings;
+    private PanelContainer? _statusPanel;
+    private Label? _statusLabel;
     private PanelContainer? _toolbarPanel;
     private PanelContainer? _settingsPanel;
     private CombatQuillToolButton? _drawButton;
     private CombatQuillToolButton? _eraseButton;
     private CombatQuillToolButton? _clearButton;
     private CombatQuillGlyphButton? _settingsButton;
+    private Label? _activationKeyLabel;
+    private Button? _activationKeyButton;
+    private Label? _triggerModeLabel;
+    private Button? _triggerModeButton;
     private Label? _colorLabel;
     private Label? _strokeWidthLabel;
     private Label? _strokeWidthValueLabel;
@@ -77,6 +83,9 @@ public partial class CombatQuillOverlay : CanvasLayer
     private ToolMode _lastSelectedTool = ToolMode.Draw;
     private MouseButton _activeMouseButton;
     private bool _isSuppressedByTargeting;
+    private bool _activationKeyHeld;
+    private bool _activationLatched;
+    private bool _isCapturingActivationKey;
 
     internal void Initialize(CombatQuillSettings settings, CombatQuillScreenKind screenKind)
     {
@@ -94,13 +103,15 @@ public partial class CombatQuillOverlay : CanvasLayer
         SetProcessInput(true);
 
         CombatQuillI18n.Initialize();
-        CreateDrawingsLayer();
         CreateControllerCursor();
+        CreateStatusPanel();
         CreateToolbar();
         CreateSettingsPanel();
         SubscribeSignals();
         ApplyLocalization();
+        EnsureDrawingsLayer();
         ApplyEffectiveTool();
+        CallDeferred(nameof(EnsureDrawingsLayer));
         CallDeferred(nameof(ApplyInitialToolbarPosition));
     }
 
@@ -151,11 +162,17 @@ public partial class CombatQuillOverlay : CanvasLayer
 
     public override void _Process(double delta)
     {
+        EnsureDrawingsLayer();
         ProcessControllerCursor(delta);
     }
 
-    private void CreateDrawingsLayer()
+    private void EnsureDrawingsLayer()
     {
+        if (_drawings is not null)
+        {
+            return;
+        }
+
         var runState = RunManager.Instance.DebugOnlyGetState();
         if (runState is not IPlayerCollection playerCollection)
         {
@@ -174,6 +191,11 @@ public partial class CombatQuillOverlay : CanvasLayer
             playerCollection,
             RunManager.Instance.InputSynchronizer,
             _screenKind.ToNetScreenType());
+
+        ApplyEffectiveTool();
+        UpdateToolStateUi();
+
+        GD.Print($"{MainFile.ModId}: drawings layer initialized for {_screenKind.GetDisplayName()}");
     }
 
     private void CreateControllerCursor()
@@ -198,6 +220,42 @@ public partial class CombatQuillOverlay : CanvasLayer
         _controllerCursorTexture.Size = new Vector2(64f, 64f);
         _controllerCursorTexture.PivotOffset = _controllerCursorTexture.Size * 0.5f;
         _controllerCursor.AddChild(_controllerCursorTexture);
+    }
+
+    private void CreateStatusPanel()
+    {
+        if (!_settings.ShowStatusPanel)
+        {
+            return;
+        }
+
+        _statusPanel = new PanelContainer
+        {
+            Name = "CombatQuillStatusPanel",
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        _statusPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopLeft);
+        _statusPanel.Position = new Vector2(18f, 18f);
+        _statusPanel.AddThemeStyleboxOverride("panel", CreateToolbarStyle());
+        AddChild(_statusPanel);
+
+        var margin = new MarginContainer
+        {
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        margin.AddThemeConstantOverride("margin_left", 8);
+        margin.AddThemeConstantOverride("margin_top", 4);
+        margin.AddThemeConstantOverride("margin_right", 8);
+        margin.AddThemeConstantOverride("margin_bottom", 4);
+        _statusPanel.AddChild(margin);
+
+        _statusLabel = new Label
+        {
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        _statusLabel.AddThemeFontSizeOverride("font_size", 12);
+        _statusLabel.AddThemeColorOverride("font_color", new Color("E6F4FF"));
+        margin.AddChild(_statusLabel);
     }
 
     private void CreateToolbar()
@@ -280,6 +338,9 @@ public partial class CombatQuillOverlay : CanvasLayer
         root.AddThemeConstantOverride("separation", 6);
         margin.AddChild(root);
 
+        root.AddChild(CreateActionRow(out _activationKeyLabel, out _activationKeyButton, BeginActivationKeyCapture));
+        root.AddChild(CreateActionRow(out _triggerModeLabel, out _triggerModeButton, ToggleActivationTriggerMode));
+
         _colorLabel = CreateSectionLabel(string.Empty);
         root.AddChild(_colorLabel);
 
@@ -330,7 +391,8 @@ public partial class CombatQuillOverlay : CanvasLayer
 
     private void ApplyInitialToolbarPosition()
     {
-        if (_toolbarPanel is null)
+        var toolbarPanel = _toolbarPanel;
+        if (toolbarPanel is null || !GodotObject.IsInstanceValid(toolbarPanel) || !TryGetOverlayViewport(out var viewport))
         {
             return;
         }
@@ -339,14 +401,14 @@ public partial class CombatQuillOverlay : CanvasLayer
 
         if (_settings.ToolbarPositionX < 0f || _settings.ToolbarPositionY < 0f)
         {
-            var viewportSize = GetViewport().GetVisibleRect().Size;
-            _toolbarPanel.Position = new Vector2(
-                viewportSize.X - _toolbarPanel.Size.X - 18f,
+            var viewportSize = viewport.GetVisibleRect().Size;
+            toolbarPanel.Position = new Vector2(
+                viewportSize.X - toolbarPanel.Size.X - 18f,
                 18f);
         }
         else
         {
-            _toolbarPanel.Position = new Vector2(_settings.ToolbarPositionX, _settings.ToolbarPositionY);
+            toolbarPanel.Position = new Vector2(_settings.ToolbarPositionX, _settings.ToolbarPositionY);
         }
 
         ClampToolbarPosition();
@@ -374,6 +436,7 @@ public partial class CombatQuillOverlay : CanvasLayer
 
             if (_selectedTool != ToolMode.None)
             {
+                ResetActivationState();
                 SetSelectedTool(ToolMode.None);
                 ActiveScreenContext.Instance.FocusOnDefaultControl();
                 GetViewport().SetInputAsHandled();
@@ -386,7 +449,22 @@ public partial class CombatQuillOverlay : CanvasLayer
 
     private bool TryHandleKeyInput(InputEvent @event)
     {
-        if (@event is not InputEventKey keyEvent || !keyEvent.Pressed || keyEvent.Echo)
+        if (@event is not InputEventKey keyEvent || keyEvent.Echo)
+        {
+            return false;
+        }
+
+        if (_isCapturingActivationKey)
+        {
+            return TryCaptureActivationKey(keyEvent);
+        }
+
+        if (MatchesKey(keyEvent, _settings.GetActivationKey()))
+        {
+            return HandleActivationKeyEvent(keyEvent);
+        }
+
+        if (!keyEvent.Pressed)
         {
             return false;
         }
@@ -396,12 +474,23 @@ public partial class CombatQuillOverlay : CanvasLayer
             if (_settingsOpen)
             {
                 SetSettingsOpen(false);
+                GetViewport().SetInputAsHandled();
                 return true;
             }
 
             if (_selectedTool != ToolMode.None)
             {
+                ResetActivationState();
                 SetSelectedTool(ToolMode.None);
+                GetViewport().SetInputAsHandled();
+                return true;
+            }
+
+            if (IsActivationTriggerEngaged())
+            {
+                ResetActivationState();
+                ApplyEffectiveTool();
+                GetViewport().SetInputAsHandled();
                 return true;
             }
         }
@@ -409,10 +498,11 @@ public partial class CombatQuillOverlay : CanvasLayer
         if (MatchesKey(keyEvent, _settings.GetToggleKey()))
         {
             TogglePrimaryTool();
+            GetViewport().SetInputAsHandled();
             return true;
         }
 
-        if (_selectedTool == ToolMode.None)
+        if (_effectiveTool == ToolMode.None)
         {
             return false;
         }
@@ -420,12 +510,14 @@ public partial class CombatQuillOverlay : CanvasLayer
         if (MatchesKey(keyEvent, _settings.GetClearKey()))
         {
             ClearCanvas();
+            GetViewport().SetInputAsHandled();
             return true;
         }
 
         if (MatchesKey(keyEvent, _settings.GetEraserKey()))
         {
-            SetSelectedTool(_selectedTool == ToolMode.Erase ? ToolMode.Draw : ToolMode.Erase);
+            TogglePreferredTool();
+            GetViewport().SetInputAsHandled();
             return true;
         }
 
@@ -434,7 +526,7 @@ public partial class CombatQuillOverlay : CanvasLayer
 
     private void HandleMouseButton(InputEventMouseButton mouseButtonEvent)
     {
-        if (_drawings is null || mouseButtonEvent.ButtonIndex is not (MouseButton.Left or MouseButton.Right))
+        if (_drawings is null || !IsSupportedDrawingButton(mouseButtonEvent.ButtonIndex))
         {
             return;
         }
@@ -578,6 +670,22 @@ public partial class CombatQuillOverlay : CanvasLayer
         SetSettingsOpen(!_settingsOpen);
     }
 
+    private void BeginActivationKeyCapture()
+    {
+        _isCapturingActivationKey = true;
+        UpdateToolStateUi();
+    }
+
+    private void ToggleActivationTriggerMode()
+    {
+        _settings.ActivationTriggerMode = _settings.GetActivationTriggerMode() == CombatQuillActivationTriggerMode.Hold
+            ? nameof(CombatQuillActivationTriggerMode.Toggle)
+            : nameof(CombatQuillActivationTriggerMode.Hold);
+
+        ResetActivationState();
+        PersistOverlaySettings(broadcastStyle: false, refreshEffectiveTool: true);
+    }
+
     private void ClearCanvasFromToolbar()
     {
         ClearCanvas();
@@ -585,6 +693,73 @@ public partial class CombatQuillOverlay : CanvasLayer
         {
             GetViewport().GuiReleaseFocus();
         }
+    }
+
+    private bool TryCaptureActivationKey(InputEventKey keyEvent)
+    {
+        if (!keyEvent.Pressed)
+        {
+            return true;
+        }
+
+        if (MatchesKey(keyEvent, Key.Escape))
+        {
+            _isCapturingActivationKey = false;
+            UpdateToolStateUi();
+            GetViewport().SetInputAsHandled();
+            return true;
+        }
+
+        var capturedKey = ResolveKeyFromEvent(keyEvent);
+        if (capturedKey == Key.None)
+        {
+            return true;
+        }
+
+        _settings.ActivationKey = capturedKey.ToString();
+        _isCapturingActivationKey = false;
+        ResetActivationState();
+        PersistOverlaySettings(broadcastStyle: false, refreshEffectiveTool: true);
+        GetViewport().SetInputAsHandled();
+        return true;
+    }
+
+    private bool HandleActivationKeyEvent(InputEventKey keyEvent)
+    {
+        if (_settings.GetActivationTriggerMode() == CombatQuillActivationTriggerMode.Hold)
+        {
+            if (_activationKeyHeld == keyEvent.Pressed)
+            {
+                return true;
+            }
+
+            _activationKeyHeld = keyEvent.Pressed;
+            ApplyEffectiveTool();
+            GetViewport().SetInputAsHandled();
+            return true;
+        }
+
+        if (!keyEvent.Pressed)
+        {
+            return true;
+        }
+
+        _activationLatched = !_activationLatched;
+        ApplyEffectiveTool();
+        GetViewport().SetInputAsHandled();
+        return true;
+    }
+
+    private void TogglePreferredTool()
+    {
+        if (_selectedTool != ToolMode.None)
+        {
+            SetSelectedTool(_selectedTool == ToolMode.Erase ? ToolMode.Draw : ToolMode.Erase);
+            return;
+        }
+
+        _lastSelectedTool = _lastSelectedTool == ToolMode.Erase ? ToolMode.Draw : ToolMode.Erase;
+        ApplyEffectiveTool();
     }
 
     private void SetSelectedTool(ToolMode toolMode)
@@ -606,6 +781,11 @@ public partial class CombatQuillOverlay : CanvasLayer
     private void SetSettingsOpen(bool open)
     {
         _settingsOpen = open;
+        if (!open)
+        {
+            _isCapturingActivationKey = false;
+        }
+
         UpdateToolStateUi();
     }
 
@@ -616,7 +796,7 @@ public partial class CombatQuillOverlay : CanvasLayer
             return;
         }
 
-        var nextTool = _isSuppressedByTargeting ? ToolMode.None : _selectedTool;
+        var nextTool = GetTargetTool();
         if (_effectiveTool != nextTool && _drawings.IsLocalDrawing())
         {
             _drawings.StopLineLocal();
@@ -629,7 +809,7 @@ public partial class CombatQuillOverlay : CanvasLayer
             _drawings.SetDrawingModeLocal(targetMode);
         }
 
-        if (_effectiveTool == ToolMode.None && _activeMouseButton == MouseButton.Left)
+        if (_effectiveTool == ToolMode.None)
         {
             _activeMouseButton = MouseButton.None;
         }
@@ -640,8 +820,8 @@ public partial class CombatQuillOverlay : CanvasLayer
 
     private void UpdateToolStateUi()
     {
-        _drawButton?.SetActiveState(_selectedTool == ToolMode.Draw);
-        _eraseButton?.SetActiveState(_selectedTool == ToolMode.Erase);
+        _drawButton?.SetActiveState(_effectiveTool == ToolMode.Draw);
+        _eraseButton?.SetActiveState(_effectiveTool == ToolMode.Erase);
         _clearButton?.SetActiveState(false);
         _settingsButton?.SetActiveState(_settingsOpen);
 
@@ -664,6 +844,22 @@ public partial class CombatQuillOverlay : CanvasLayer
                 _isSuppressedByTargeting ? Mathf.Clamp(_settings.PanelOpacity * 0.75f, 0.2f, 1f) : _settings.PanelOpacity);
         }
 
+        if (_statusPanel is not null)
+        {
+            _statusPanel.Visible = _settings.ShowStatusPanel;
+            _statusPanel.SelfModulate = new Color(
+                1f,
+                1f,
+                1f,
+                _isSuppressedByTargeting ? Mathf.Clamp(_settings.PanelOpacity * 0.75f, 0.2f, 1f) : _settings.PanelOpacity);
+        }
+
+        if (_statusLabel is not null)
+        {
+            _statusLabel.Text = GetStatusText();
+        }
+
+        UpdateTriggerUi();
         UpdateColorButtons();
         UpdateValueLabels();
         ApplyLocalization();
@@ -715,8 +911,33 @@ public partial class CombatQuillOverlay : CanvasLayer
         }
     }
 
+    private void UpdateTriggerUi()
+    {
+        if (_activationKeyButton is not null)
+        {
+            _activationKeyButton.Text = _isCapturingActivationKey
+                ? CombatQuillI18n.Get("settings.capture_key", "Press a key...")
+                : GetActivationKeyDisplayText();
+        }
+
+        if (_triggerModeButton is not null)
+        {
+            _triggerModeButton.Text = GetTriggerModeDisplayText();
+        }
+    }
+
     private void ApplyLocalization()
     {
+        if (_activationKeyLabel is not null)
+        {
+            _activationKeyLabel.Text = CombatQuillI18n.Get("settings.activation_key", "Trigger Key");
+        }
+
+        if (_triggerModeLabel is not null)
+        {
+            _triggerModeLabel.Text = CombatQuillI18n.Get("settings.trigger_mode", "Trigger");
+        }
+
         if (_colorLabel is not null)
         {
             _colorLabel.Text = CombatQuillI18n.Get("settings.color", "Color");
@@ -746,47 +967,131 @@ public partial class CombatQuillOverlay : CanvasLayer
         {
             _settingsButton.TooltipText = CombatQuillI18n.Get("tooltip.settings", "Open brush settings");
         }
+
+        if (_activationKeyButton is not null)
+        {
+            _activationKeyButton.TooltipText = CombatQuillI18n.Get(
+                _isCapturingActivationKey ? "tooltip.activation_key_listening" : "tooltip.activation_key",
+                _isCapturingActivationKey ? "Listening for a key. Press Esc to cancel" : "Click, then press a key to change the trigger key");
+        }
+
+        if (_triggerModeButton is not null)
+        {
+            _triggerModeButton.TooltipText = CombatQuillI18n.Get(
+                "tooltip.trigger_mode",
+                "Switch between hold-to-draw and tap-to-toggle");
+        }
+    }
+
+    private ToolMode GetTargetTool()
+    {
+        if (_isSuppressedByTargeting)
+        {
+            return ToolMode.None;
+        }
+
+        if (_selectedTool != ToolMode.None)
+        {
+            return _selectedTool;
+        }
+
+        return IsActivationTriggerEngaged() ? GetTriggeredTool() : ToolMode.None;
+    }
+
+    private ToolMode GetTriggeredTool()
+    {
+        return _lastSelectedTool == ToolMode.None ? ToolMode.Draw : _lastSelectedTool;
+    }
+
+    private bool IsActivationTriggerEngaged()
+    {
+        return _settings.GetActivationTriggerMode() == CombatQuillActivationTriggerMode.Hold
+            ? _activationKeyHeld
+            : _activationLatched;
+    }
+
+    private void ResetActivationState()
+    {
+        _activationKeyHeld = false;
+        _activationLatched = false;
+    }
+
+    private void PersistOverlaySettings(bool broadcastStyle, bool refreshEffectiveTool)
+    {
+        _settings.Normalize();
+        CombatQuillService.PersistSettings(_settings, broadcastStyle);
+
+        if (refreshEffectiveTool)
+        {
+            ApplyEffectiveTool();
+            return;
+        }
+
+        UpdateToolStateUi();
+    }
+
+    private string GetActivationKeyDisplayText()
+    {
+        var key = _settings.GetActivationKey();
+        var displayName = OS.GetKeycodeString(key);
+        return string.IsNullOrWhiteSpace(displayName) ? key.ToString() : displayName;
+    }
+
+    private string GetTriggerModeDisplayText()
+    {
+        return _settings.GetActivationTriggerMode() == CombatQuillActivationTriggerMode.Hold
+            ? CombatQuillI18n.Get("settings.trigger_mode_hold", "Hold")
+            : CombatQuillI18n.Get("settings.trigger_mode_toggle", "Tap");
     }
 
     private void RefreshToolbarSize()
     {
-        if (_toolbarPanel is null)
+        var toolbarPanel = _toolbarPanel;
+        if (toolbarPanel is null || !GodotObject.IsInstanceValid(toolbarPanel))
         {
             return;
         }
 
-        _toolbarPanel.Size = _toolbarPanel.GetCombinedMinimumSize();
+        toolbarPanel.Size = toolbarPanel.GetCombinedMinimumSize();
         ClampToolbarPosition();
     }
 
     private void RefreshSettingsPanelLayout()
     {
-        if (_settingsPanel is null)
+        var settingsPanel = _settingsPanel;
+        if (settingsPanel is null || !GodotObject.IsInstanceValid(settingsPanel))
         {
             return;
         }
 
-        _settingsPanel.Size = _settingsPanel.GetCombinedMinimumSize();
+        settingsPanel.Size = settingsPanel.GetCombinedMinimumSize();
         UpdateSettingsPanelPlacement();
     }
 
     private void UpdateSettingsPanelPlacement()
     {
-        if (_settingsPanel is null || _toolbarPanel is null || !_settingsOpen)
+        var settingsPanel = _settingsPanel;
+        var toolbarPanel = _toolbarPanel;
+        if (settingsPanel is null ||
+            !GodotObject.IsInstanceValid(settingsPanel) ||
+            toolbarPanel is null ||
+            !GodotObject.IsInstanceValid(toolbarPanel) ||
+            !_settingsOpen ||
+            !TryGetOverlayViewport(out var viewport))
         {
             return;
         }
 
-        var viewportSize = GetViewport().GetVisibleRect().Size;
-        var desiredPosition = _toolbarPanel.Position + new Vector2(0f, _toolbarPanel.Size.Y + 6f);
-        if (desiredPosition.Y + _settingsPanel.Size.Y > viewportSize.Y - 8f)
+        var viewportSize = viewport.GetVisibleRect().Size;
+        var desiredPosition = toolbarPanel.Position + new Vector2(0f, toolbarPanel.Size.Y + 6f);
+        if (desiredPosition.Y + settingsPanel.Size.Y > viewportSize.Y - 8f)
         {
-            desiredPosition.Y = _toolbarPanel.Position.Y - _settingsPanel.Size.Y - 6f;
+            desiredPosition.Y = toolbarPanel.Position.Y - settingsPanel.Size.Y - 6f;
         }
 
-        desiredPosition.X = Mathf.Clamp(desiredPosition.X, 8f, Math.Max(8f, viewportSize.X - _settingsPanel.Size.X - 8f));
-        desiredPosition.Y = Mathf.Clamp(desiredPosition.Y, 8f, Math.Max(8f, viewportSize.Y - _settingsPanel.Size.Y - 8f));
-        _settingsPanel.Position = desiredPosition;
+        desiredPosition.X = Mathf.Clamp(desiredPosition.X, 8f, Math.Max(8f, viewportSize.X - settingsPanel.Size.X - 8f));
+        desiredPosition.Y = Mathf.Clamp(desiredPosition.Y, 8f, Math.Max(8f, viewportSize.Y - settingsPanel.Size.Y - 8f));
+        settingsPanel.Position = desiredPosition;
     }
 
     private void SelectColor(CombatQuillColorSwatchButton button)
@@ -834,10 +1139,8 @@ public partial class CombatQuillOverlay : CanvasLayer
 
     private void PersistStyleSettings()
     {
-        _settings.Normalize();
-        CombatQuillService.PersistSettings(_settings);
+        PersistOverlaySettings(broadcastStyle: true, refreshEffectiveTool: false);
         _drawings?.RefreshAllLineStyles();
-        UpdateToolStateUi();
     }
 
     private void ClearCanvas()
@@ -887,7 +1190,7 @@ public partial class CombatQuillOverlay : CanvasLayer
 
     private void OnTargetingBegan()
     {
-        if (_selectedTool == ToolMode.None)
+        if (_selectedTool == ToolMode.None && !IsActivationTriggerEngaged())
         {
             return;
         }
@@ -915,7 +1218,7 @@ public partial class CombatQuillOverlay : CanvasLayer
 
     private void OnLocalizationChanged()
     {
-        ApplyLocalization();
+        UpdateToolStateUi();
     }
 
     private bool TryGetDrawingRequest(MouseButton button, out DrawingMode? overrideDrawingMode)
@@ -926,18 +1229,22 @@ public partial class CombatQuillOverlay : CanvasLayer
             return false;
         }
 
-        if (button == MouseButton.Left && _effectiveTool != ToolMode.None)
+        if (IsSupportedDrawingButton(button) && _effectiveTool != ToolMode.None)
         {
-            return true;
-        }
-
-        if (button == MouseButton.Right && _selectedTool == ToolMode.None)
-        {
-            overrideDrawingMode = DrawingMode.Drawing;
             return true;
         }
 
         return false;
+    }
+
+    private bool IsSupportedDrawingButton(MouseButton button)
+    {
+        if (button == MouseButton.Left)
+        {
+            return true;
+        }
+
+        return button == _settings.GetDrawButton();
     }
 
     private void FocusToolbarForController()
@@ -1014,15 +1321,28 @@ public partial class CombatQuillOverlay : CanvasLayer
 
     private void ClampToolbarPosition()
     {
-        if (_toolbarPanel is null)
+        var toolbarPanel = _toolbarPanel;
+        if (toolbarPanel is null || !GodotObject.IsInstanceValid(toolbarPanel) || !TryGetOverlayViewport(out var viewport))
         {
             return;
         }
 
-        var viewportSize = GetViewport().GetVisibleRect().Size;
-        var clampedX = Mathf.Clamp(_toolbarPanel.Position.X, 8f, Math.Max(8f, viewportSize.X - _toolbarPanel.Size.X - 8f));
-        var clampedY = Mathf.Clamp(_toolbarPanel.Position.Y, 8f, Math.Max(8f, viewportSize.Y - _toolbarPanel.Size.Y - 8f));
-        _toolbarPanel.Position = new Vector2(clampedX, clampedY);
+        var viewportSize = viewport.GetVisibleRect().Size;
+        var clampedX = Mathf.Clamp(toolbarPanel.Position.X, 8f, Math.Max(8f, viewportSize.X - toolbarPanel.Size.X - 8f));
+        var clampedY = Mathf.Clamp(toolbarPanel.Position.Y, 8f, Math.Max(8f, viewportSize.Y - toolbarPanel.Size.Y - 8f));
+        toolbarPanel.Position = new Vector2(clampedX, clampedY);
+    }
+
+    private bool TryGetOverlayViewport(out Viewport viewport)
+    {
+        viewport = null!;
+        if (!IsInsideTree())
+        {
+            return false;
+        }
+
+        viewport = GetViewport();
+        return viewport is not null;
     }
 
     private void SaveToolbarPosition()
@@ -1128,6 +1448,31 @@ public partial class CombatQuillOverlay : CanvasLayer
         return button;
     }
 
+    private static HBoxContainer CreateActionRow(
+        out Label label,
+        out Button button,
+        Action onPressed)
+    {
+        var row = new HBoxContainer
+        {
+            MouseFilter = Control.MouseFilterEnum.Pass
+        };
+        row.AddThemeConstantOverride("separation", 6);
+
+        label = new Label
+        {
+            CustomMinimumSize = new Vector2(68f, 0f),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter
+        };
+        label.AddThemeFontSizeOverride("font_size", 11);
+        row.AddChild(label);
+
+        button = CreateActionButton(onPressed);
+        row.AddChild(button);
+        return row;
+    }
+
     private static HBoxContainer CreateStepperRow(
         out Label label,
         out Label valueLabel,
@@ -1161,6 +1506,27 @@ public partial class CombatQuillOverlay : CanvasLayer
 
         row.AddChild(CreateMiniButton("+", onPlusPressed));
         return row;
+    }
+
+    private static Button CreateActionButton(Action onPressed)
+    {
+        var button = new Button
+        {
+            Flat = true,
+            FocusMode = Control.FocusModeEnum.All,
+            MouseFilter = Control.MouseFilterEnum.Stop,
+            CustomMinimumSize = new Vector2(116f, 26f),
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            ClipText = true,
+            Alignment = HorizontalAlignment.Left
+        };
+        button.MouseDefaultCursorShape = Control.CursorShape.PointingHand;
+        button.AddThemeStyleboxOverride("normal", CreateActionButtonStyle(new Color(0.14f, 0.19f, 0.26f, 0.95f)));
+        button.AddThemeStyleboxOverride("hover", CreateActionButtonStyle(new Color(0.19f, 0.26f, 0.36f, 0.98f)));
+        button.AddThemeStyleboxOverride("pressed", CreateActionButtonStyle(new Color(0.24f, 0.32f, 0.44f, 1f)));
+        button.AddThemeFontSizeOverride("font_size", 11);
+        button.Pressed += () => onPressed.Invoke();
+        return button;
     }
 
     private static Button CreateMiniButton(string text, Action onPressed)
@@ -1232,6 +1598,23 @@ public partial class CombatQuillOverlay : CanvasLayer
         };
     }
 
+    private static StyleBoxFlat CreateActionButtonStyle(Color backgroundColor)
+    {
+        return new StyleBoxFlat
+        {
+            BgColor = backgroundColor,
+            BorderColor = new Color(0.48f, 0.6f, 0.72f, 0.75f),
+            BorderWidthTop = 1,
+            BorderWidthBottom = 1,
+            BorderWidthLeft = 1,
+            BorderWidthRight = 1,
+            CornerRadiusTopLeft = 6,
+            CornerRadiusTopRight = 6,
+            CornerRadiusBottomLeft = 6,
+            CornerRadiusBottomRight = 6
+        };
+    }
+
     private static StyleBoxFlat CreateMiniButtonStyle(Color backgroundColor)
     {
         return new StyleBoxFlat
@@ -1293,8 +1676,34 @@ public partial class CombatQuillOverlay : CanvasLayer
         };
     }
 
+    private static Key ResolveKeyFromEvent(InputEventKey keyEvent)
+    {
+        if (keyEvent.Keycode != Key.None)
+        {
+            return keyEvent.Keycode;
+        }
+
+        return keyEvent.PhysicalKeycode;
+    }
+
     private static bool MatchesKey(InputEventKey keyEvent, Key expectedKey)
     {
         return keyEvent.Keycode == expectedKey || keyEvent.PhysicalKeycode == expectedKey;
+    }
+
+    private string GetStatusText()
+    {
+        var name = CombatQuillI18n.Get("combat_quill.name", "CombatQuill");
+        var triggerState = CombatQuillI18n.Get(
+            _effectiveTool == ToolMode.None ? "status.inactive" : "status.active",
+            _effectiveTool == ToolMode.None ? "Idle" : "Active");
+        var toolLabel = _effectiveTool switch
+        {
+            ToolMode.Draw => "Draw",
+            ToolMode.Erase => "Erase",
+            _ => "-"
+        };
+
+        return $"{name}  {triggerState}  {toolLabel}  {GetActivationKeyDisplayText()}";
     }
 }

@@ -16,11 +16,6 @@ internal static class CombatQuillStyleRegistry
     {
         if (ReferenceEquals(_netService, netService))
         {
-            if (_netService is not null)
-            {
-                UpdateLocalFromSettings(CombatQuillSettingsStore.Load(), broadcast: true);
-            }
-
             return;
         }
 

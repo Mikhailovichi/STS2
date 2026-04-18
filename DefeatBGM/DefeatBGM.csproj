@@ -1,0 +1,72 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DefaultItemExcludes>packages\**</DefaultItemExcludes>
+    <Sts2Path Condition="'$(Sts2Path)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../..'))</Sts2Path>
+    <Sts2DataDir Condition="'$(Sts2DataDir)' == ''">$(Sts2Path)/data_sts2_windows_x86_64</Sts2DataDir>
+    <GodotPath Condition="'$(GodotPath)' == ''"></GodotPath>
+    <ModOutputDir>$(Sts2Path)/mods/DefeatBGM</ModOutputDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="0Harmony">
+      <HintPath>$(Sts2DataDir)/0Harmony.dll</HintPath>
+    </Reference>
+    <Reference Include="GodotSharp">
+      <HintPath>$(Sts2DataDir)/GodotSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="sts2">
+      <HintPath>$(Sts2DataDir)/sts2.dll</HintPath>
+      <Publicize>PublicizeSts</Publicize>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="export_presets.cfg" />
+    <None Include="DefeatBGM.json" />
+    <None Include="icon.svg" />
+    <None Include="mod_manifest.json" />
+    <None Include="music\**\*.*" />
+    <None Include="nuget.config" />
+    <None Include="project.godot" />
+    <None Include="README.md" />
+  </ItemGroup>
+
+  <Target Name="CopyToModsFolderOnBuild" AfterTargets="Build">
+    <ItemGroup>
+      <MusicFiles Include="music\**\*.*" />
+    </ItemGroup>
+    <MakeDir Directories="$(ModOutputDir)" />
+    <MakeDir Directories="$(ModOutputDir)\music" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModOutputDir)" />
+    <Copy SourceFiles="DefeatBGM.json" DestinationFolder="$(ModOutputDir)" />
+    <Copy SourceFiles="mod_manifest.json" DestinationFolder="$(ModOutputDir)" />
+    <Copy SourceFiles="README.md" DestinationFolder="$(ModOutputDir)" />
+    <Copy SourceFiles="@(MusicFiles)" DestinationFolder="$(ModOutputDir)\music\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target
+    Name="GodotPublish"
+    AfterTargets="Publish"
+    Condition="'$(GodotPath)' != '' and Exists('$(GodotPath)') and '$(IsInnerGodotExport)' != 'true'">
+    <MakeDir Directories="$(ModOutputDir)" />
+    <Exec
+      Command="&quot;$(GodotPath)&quot; --headless --export-pack &quot;Windows Desktop&quot; &quot;$(ModOutputDir)/DefeatBGM.pck&quot;"
+      EnvironmentVariables="IsInnerGodotExport=true;MSBUILDDISABLENODEREUSE=1"
+      ContinueOnError="WarnAndContinue" />
+  </Target>
+
+  <Target Name="GodotPublishSkipped" AfterTargets="Publish" Condition="'$(GodotPath)' == '' or !Exists('$(GodotPath)')">
+    <Message Text="Skipping Godot .pck export because GodotPath is not configured." Importance="high" />
+  </Target>
+</Project>

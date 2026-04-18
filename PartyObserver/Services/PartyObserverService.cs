@@ -1,5 +1,6 @@
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Multiplayer;
@@ -7,6 +8,7 @@ using MegaCrit.Sts2.Core.Nodes.Rewards;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
+using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
 using MegaCrit.Sts2.Core.Rewards;
 using MegaCrit.Sts2.Core.Runs;
 using PartyObserver.UI;
@@ -18,6 +20,11 @@ internal static class PartyObserverService
     public static void InitializeRunContext()
     {
         PartyObserverRegistry.BindToNetService(RunManager.Instance.IsInProgress ? RunManager.Instance.NetService : null);
+    }
+
+    public static void ClearRunContext()
+    {
+        PartyObserverRegistry.BindToNetService(null);
     }
 
     public static void PersistSettings(PartyObserverSettings settings)
@@ -46,6 +53,18 @@ internal static class PartyObserverService
     public static void AttachOverlay(NCardRewardSelectionScreen selectionScreen)
     {
         _ = selectionScreen;
+        EnsureOverlay();
+    }
+
+    public static void AttachOverlay(NChooseARelicSelection relicSelectionScreen)
+    {
+        _ = relicSelectionScreen;
+        EnsureOverlay();
+    }
+
+    public static void AttachOverlay(NMerchantInventory merchantInventory)
+    {
+        _ = merchantInventory;
         EnsureOverlay();
     }
 
@@ -89,6 +108,34 @@ internal static class PartyObserverService
         }
 
         PartyObserverRegistry.UpdateLocalSnapshot(PartyObserverChoiceSnapshotBuilder.BuildRewardsScreen(rewards));
+    }
+
+    public static void UpdateRelicSelectionSnapshot(IReadOnlyList<RelicModel> relics)
+    {
+        if (relics.Count == 0)
+        {
+            PartyObserverRegistry.ClearLocalSnapshot();
+            return;
+        }
+
+        PartyObserverRegistry.UpdateLocalSnapshot(PartyObserverChoiceSnapshotBuilder.BuildRelicSelection(relics));
+    }
+
+    public static void UpdateMerchantSnapshot(NMerchantInventory merchantInventory)
+    {
+        if (!merchantInventory.IsOpen || merchantInventory.Inventory is null)
+        {
+            PartyObserverRegistry.ClearLocalSnapshot();
+            return;
+        }
+
+        PartyObserverRegistry.UpdateLocalSnapshot(
+            PartyObserverChoiceSnapshotBuilder.BuildMerchantInventory(merchantInventory.Inventory));
+    }
+
+    public static bool TryEnsureOverlayForCurrentRun()
+    {
+        return EnsureOverlay() is not null;
     }
 
     private static PartyObserverOverlay? EnsureOverlay()

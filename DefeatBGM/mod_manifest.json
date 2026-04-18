@@ -1,0 +1,7 @@
+{
+  "pck_name": "DefeatBGM",
+  "name": "DefeatBGM",
+  "author": "",
+  "description": "Replace the default defeat music cue with a custom local track loaded from the mod folder.",
+  "version": "0.1.0"
+}

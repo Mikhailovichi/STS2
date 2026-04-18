@@ -7,6 +7,8 @@
   "ToggleKey": "F8",
   "ClearKey": "F9",
   "EraserKey": "E",
+  "ActivationKey": "Ctrl",
+  "ActivationTriggerMode": "Hold",
   "DrawButton": "Right",
   "StrokeWidth": 6.0,
   "EraserRadius": 28.0,
