@@ -11,6 +11,7 @@ internal static class RandomVisionCrystalPreview
 
     public static void Remove(NCrystalSphereScreen screen)
     {
+        MainFile.LogInfo("crystal-preview remove");
         screen.GetNodeOrNull<Control>(OverlayName)?.QueueFree();
 
         var itemsContainer = screen.GetNodeOrNull<Control>("%Items");
@@ -25,8 +26,11 @@ internal static class RandomVisionCrystalPreview
         var host = itemsContainer ?? screen;
         if (host.GetNodeOrNull<Control>(OverlayName) is not null)
         {
+            MainFile.LogInfo($"crystal-preview skip-existing items={minigame.Items.Count} grid={minigame.GridSize}");
             return;
         }
+
+        MainFile.LogInfo($"crystal-preview attach-start items={minigame.Items.Count} grid={minigame.GridSize}");
 
         var overlay = new Control
         {
@@ -41,11 +45,13 @@ internal static class RandomVisionCrystalPreview
         host.AddChild(overlay);
 
         var gridOffset = Vector2.One * (-(CellSize * minigame.GridSize.X) * 0.5f);
+        var previewCount = 0;
         foreach (var item in minigame.Items)
         {
             var preview = NCrystalSphereItem.Create(item);
             if (preview is null)
             {
+                MainFile.LogInfo($"crystal-preview item-skipped position={item.Position} size={item.Size}");
                 continue;
             }
 
@@ -55,9 +61,12 @@ internal static class RandomVisionCrystalPreview
             preview.FocusMode = Control.FocusModeEnum.None;
             preview.Modulate = new Color(1f, 1f, 1f, 0.28f);
             overlay.AddChild(preview);
+            previewCount++;
+            MainFile.LogInfo($"crystal-preview item-added index={previewCount - 1} position={item.Position} size={item.Size}");
         }
 
         overlay.AddChild(CreateTag(gridOffset));
+        MainFile.LogInfo($"crystal-preview attach-done previews={previewCount}");
     }
 
     private static Control CreateTag(Vector2 gridOffset)

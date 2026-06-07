@@ -42,25 +42,30 @@ internal static class RandomVisionEventOverlay
 
     public static void Remove(NEventLayout layout)
     {
+        MainFile.LogInfo("event-overlay remove");
         layout.GetNodeOrNull<Control>(OverlayName)?.QueueFree();
         NEventRoom.Instance?.GetNodeOrNull<CanvasLayer>(OverlayLayerName)?.QueueFree();
     }
 
     public static void AttachOrRefresh(NEventLayout layout, EventModel eventModel)
     {
+        MainFile.LogInfo($"event-overlay attach-start event={eventModel.Id.Entry} type={eventModel.GetType().Name}");
         var preview = RandomVisionPreviewRegistry.BuildEventPreview(eventModel);
         if (preview.Options.Count == 0)
         {
+            MainFile.LogInfo($"event-overlay empty-preview event={eventModel.Id.Entry}; removing overlay");
             Remove(layout);
             return;
         }
 
         var panel = TryGetOverlayPanel(layout) ?? CreateOverlay(layout);
         RefreshOverlay(panel, preview, layout);
+        MainFile.LogInfo($"event-overlay attach-done event={eventModel.Id.Entry} options={preview.Options.Count}");
     }
 
     private static RandomVisionOverlayPanel CreateOverlay(NEventLayout layout)
     {
+        MainFile.LogInfo("event-overlay create-panel");
         var host = EnsureOverlayHost(layout);
         var panelSize = ResolvePanelSize(host, layout);
         var panel = new RandomVisionOverlayPanel
@@ -373,6 +378,7 @@ internal static class RandomVisionEventOverlay
 
     private static void RefreshOverlay(RandomVisionOverlayPanel panel, EventPreviewResult preview, NEventLayout layout)
     {
+        MainFile.LogInfo($"event-overlay render title=\"{preview.EventTitle}\" options={preview.Options.Count}");
         if (panel.GetParent() is Control host)
         {
             RefreshPanelGeometry(panel, host, layout);

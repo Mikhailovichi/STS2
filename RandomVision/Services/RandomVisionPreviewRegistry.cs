@@ -38,9 +38,9 @@ internal static class RandomVisionPreviewRegistry
 
     private sealed class RewardPreviewState
     {
-        public RewardPreviewState(Player player)
+        public RewardPreviewState(Player player, Rng? rewardRng = null)
         {
-            RewardRng = CloneRng(player.PlayerRng.Rewards);
+            RewardRng = rewardRng is null ? CloneRng(player.PlayerRng.Rewards) : CloneRng(rewardRng);
             CardRarityOdds = new CardRarityOdds(player.PlayerOdds.CardRarity.CurrentValue, RewardRng);
         }
 
@@ -52,22 +52,37 @@ internal static class RandomVisionPreviewRegistry
     private static readonly AccessTools.FieldRef<SlipperyBridge, CardModel> SlipperyBridgeCardRef =
         AccessTools.FieldRefAccess<SlipperyBridge, CardModel>("_randomCardToLose");
 
+    private static readonly AccessTools.FieldRef<SlipperyBridge, int> SlipperyBridgeHoldOnsRef =
+        AccessTools.FieldRefAccess<SlipperyBridge, int>("_numberOfHoldOns");
+
+    private static readonly AccessTools.FieldRef<SlipperyBridge, HashSet<CardModel>?> SlipperyBridgeSkippedRemovalsRef =
+        AccessTools.FieldRefAccess<SlipperyBridge, HashSet<CardModel>?>("_skippedRemovals");
+
     private static readonly AccessTools.FieldRef<StoneOfAllTime, PotionModel> StonePotionRef =
         AccessTools.FieldRefAccess<StoneOfAllTime, PotionModel>("_drinkAndLiftPotion");
 
     private static readonly AccessTools.FieldRef<WelcomeToWongos, RelicModel> WongosFeaturedItemRef =
         AccessTools.FieldRefAccess<WelcomeToWongos, RelicModel>("_featuredItem");
 
+    private static readonly AccessTools.FieldRef<TabletOfTruth, int> TabletOfTruthDecipherCountRef =
+        AccessTools.FieldRefAccess<TabletOfTruth, int>("_decipherCount");
+
     private static readonly AccessTools.FieldRef<TheFutureOfPotions, Dictionary<PotionModel, CardType>?> FutureOfPotionsCardTypesRef =
         AccessTools.FieldRefAccess<TheFutureOfPotions, Dictionary<PotionModel, CardType>?>("_cardTypes");
 
     public static EventPreviewResult BuildEventPreview(EventModel eventModel)
     {
+        LogPreviewStep(eventModel, $"start options={eventModel.CurrentOptions.Count()} adapter={eventModel.GetType().Name}");
+
         var optionPreviews = BuildBaselineOptionPreviews(eventModel);
+        LogPreviewStep(eventModel, $"baseline-built options={optionPreviews.Count}");
+        LogOptionPreviews(eventModel, "baseline", optionPreviews);
 
         try
         {
+            LogPreviewStep(eventModel, $"enrich-start adapter={eventModel.GetType().Name}");
             ApplyEventSpecificPreview(eventModel, optionPreviews);
+            LogPreviewStep(eventModel, $"enrich-done adapter={eventModel.GetType().Name}");
         }
         catch (Exception ex)
         {
@@ -80,6 +95,8 @@ internal static class RandomVisionPreviewRegistry
         }
 
         var eventTitle = RandomVisionGameText.ResolveLocString(eventModel.Title, eventModel.DynamicVars);
+        LogOptionPreviews(eventModel, "final", optionPreviews);
+        LogPreviewStep(eventModel, $"done title=\"{CleanLogValue(eventTitle)}\" options={optionPreviews.Count}");
         return new EventPreviewResult(eventTitle, optionPreviews);
     }
 
@@ -131,6 +148,18 @@ internal static class RandomVisionPreviewRegistry
             case Neow neow:
                 ApplyNeowPreview(neow, previews);
                 break;
+            case Darv darv:
+                ApplyDarvPreview(darv, previews);
+                break;
+            case Vakuu vakuu:
+                ApplyVakuuPreview(vakuu, previews);
+                break;
+            case Orobas orobas:
+                ApplyOrobasPreview(orobas, previews);
+                break;
+            case Tezcatara tezcatara:
+                ApplyTezcataraPreview(tezcatara, previews);
+                break;
             case Trial trial:
                 ApplyTrialPreview(trial, previews);
                 break;
@@ -145,6 +174,9 @@ internal static class RandomVisionPreviewRegistry
                 break;
             case DoorsOfLightAndDark doors:
                 ApplyDoorsPreview(doors, previews);
+                break;
+            case TabletOfTruth tabletOfTruth:
+                ApplyTabletOfTruthPreview(tabletOfTruth, previews);
                 break;
             case TrashHeap trashHeap:
                 ApplyTrashHeapPreview(trashHeap, previews);
@@ -354,6 +386,99 @@ internal static class RandomVisionPreviewRegistry
                     handledAny = true;
                     break;
                 }
+                case HeftyTablet:
+                {
+                    if (!TryGetIntVar(neow, "Cards", out var optionCount) || optionCount <= 0)
+                    {
+                        optionCount = 3;
+                    }
+
+                    var options = new CardCreationOptions(
+                            new[] { neow.Owner.Character.CardPool },
+                            CardCreationSource.Other,
+                            CardRarityOddsType.Uniform,
+                            card => card.Rarity == CardRarity.Rare)
+                        .WithFlags(CardCreationFlags.NoUpgradeRoll);
+                    var cards = PeekRewardCards(neow.Owner, options, optionCount).ToList();
+                    optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+
+                    if (cards.Count == 0)
+                    {
+                        AddLine(optionPreview.Lines, $"沉重碑板会出现 {optionCount} 张稀有牌供你选择，并加入 1 张 {CardTitle(ModelDb.Card<Injury>())}。");
+                    }
+                    else
+                    {
+                        AddLine(optionPreview.Lines,
+                            $"沉重碑板会出现 {JoinCards(cards)} 供你 {cards.Count} 选 1，并加入 1 张 {CardTitle(ModelDb.Card<Injury>())}。");
+                        AddEntities(optionPreview.Entities, CreateCardEntities(cards));
+                    }
+
+                    handledAny = true;
+                    break;
+                }
+                case Kaleidoscope:
+                {
+                    if (!TryGetIntVar(neow, "Cards", out var rewardCount) || rewardCount <= 0)
+                    {
+                        rewardCount = 2;
+                    }
+
+                    var rewards = PeekKaleidoscopeRewards(neow.Owner, rewardCount);
+                    optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+
+                    if (rewards.Count == 0)
+                    {
+                        AddLine(optionPreview.Lines, $"万花筒会出现 {rewardCount} 组其他角色牌奖励。");
+                    }
+                    else
+                    {
+                        AddLine(optionPreview.Lines, $"万花筒会出现 {rewards.Count} 组其他角色牌奖励。");
+                        for (var rewardIndex = 0; rewardIndex < rewards.Count; rewardIndex++)
+                        {
+                            AddLine(optionPreview.Lines, $"Reward {rewardIndex + 1}：{JoinCards(rewards[rewardIndex])}。");
+                        }
+
+                        AddEntities(optionPreview.Entities, CreateCardEntities(rewards.SelectMany(reward => reward)));
+                    }
+
+                    handledAny = true;
+                    break;
+                }
+                case NeowsBones neowsBones:
+                {
+                    var relicCount = GetIntVarOrDefault(neowsBones, "Relics", 2);
+                    var curseCount = GetIntVarOrDefault(neowsBones, "Curses", 1);
+                    var bonesRelics = PeekNeowsBonesRelics(neow.Owner, neowsBones, relicCount).ToList();
+                    var curses = PeekNeowsBonesCurses(neow.Owner, curseCount).ToList();
+                    optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+
+                    if (bonesRelics.Count == 0)
+                    {
+                        AddLine(optionPreview.Lines, $"尼奥的骨头会提供 {relicCount} 件其他尼奥遗物。");
+                    }
+                    else
+                    {
+                        AddLine(optionPreview.Lines, $"尼奥的骨头会提供 {JoinRelics(bonesRelics)}。");
+                        AddEntities(optionPreview.Entities, CreateRelicEntities(bonesRelics));
+                        foreach (var bonesRelic in bonesRelics)
+                        {
+                            AddNeowsBonesRelicAdapterPreview(neow, optionPreview, bonesRelic);
+                        }
+                    }
+
+                    if (curses.Count == 0)
+                    {
+                        AddLine(optionPreview.Lines, $"之后会加入 {curseCount} 张随机诅咒。");
+                    }
+                    else
+                    {
+                        AddLine(optionPreview.Lines, $"之后会加入 {JoinCards(curses)}。");
+                        AddEntities(optionPreview.Entities, CreateCardEntities(curses));
+                    }
+
+                    handledAny = true;
+                    break;
+                }
                 case SmallCapsule:
                 {
                     var relic = PeekNextRelics(neow.Owner, 1).FirstOrDefault();
@@ -424,6 +549,27 @@ internal static class RandomVisionPreviewRegistry
                     handledAny = true;
                     break;
                 }
+                case PhialHolster phialHolster:
+                {
+                    var potionSlots = GetIntVarOrDefault(phialHolster, "PotionSlots", 1);
+                    var potionCount = GetIntVarOrDefault(phialHolster, "Potions", 2);
+                    var potions = PeekPhialHolsterPotions(neow.Owner, potionCount);
+                    optionPreview.Coverage = PreviewCoverage.Complete;
+
+                    AddLine(optionPreview.Lines, $"药瓶套会增加 {potionSlots} 个药水栏位。");
+                    if (potions.Count == 0)
+                    {
+                        AddLine(optionPreview.Lines, $"然后获得 {potionCount} 瓶随机药水。");
+                    }
+                    else
+                    {
+                        AddLine(optionPreview.Lines, $"然后获得 {JoinPotions(potions)}。");
+                        AddEntities(optionPreview.Entities, CreatePotionEntities(potions));
+                    }
+
+                    handledAny = true;
+                    break;
+                }
                 case LeafyPoultice:
                 {
                     var transformedCards = PredictLeafyPoulticeTransformCards(neow.Owner);
@@ -450,11 +596,13 @@ internal static class RandomVisionPreviewRegistry
                 }
                 case NewLeaf:
                 {
+                    var mappings = BuildTransformSelectionMappings(neow.Owner, neow.Owner.RunState.Rng.Niche);
                     optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
-                    foreach (var line in BuildTransformSelectionPreview(neow.Owner, neow.Owner.RunState.Rng.Niche, 1))
+                    foreach (var line in BuildTransformSelectionPreview(mappings, 1))
                     {
                         AddLine(optionPreview.Lines, line);
                     }
+                    AddEntities(optionPreview.Entities, CreateCardEntities(mappings.Select(item => item.Target)));
 
                     handledAny = true;
                     break;
@@ -511,32 +659,522 @@ internal static class RandomVisionPreviewRegistry
         AddEntities(largeCapsulePreview.Entities, CreateRelicEntities(relics));
     }
 
+    private static void ApplyDarvPreview(Darv darv, IList<EventOptionPreview> previews)
+    {
+        if (darv.Owner is null)
+        {
+            return;
+        }
+
+        foreach (var preview in previews.Where(preview => !preview.SourceOption.IsLocked))
+        {
+            switch (preview.SourceOption.Relic)
+            {
+                case Astrolabe astrolabe:
+                {
+                    var selectionCount = astrolabe.DynamicVars.Cards.IntValue;
+                    var outcomes = PeekAstrolabeTransformOutcomes(darv.Owner, selectionCount);
+                    preview.Coverage = PreviewCoverage.PartialNeedsInput;
+                    if (outcomes.Count == 0)
+                    {
+                        AddLine(preview.Lines, "当前没有可转化的牌。");
+                    }
+                    else
+                    {
+                        AddLine(preview.Lines, $"还需要选择 {selectionCount} 张牌；结果会随选择顺序变化。");
+                        foreach (var outcome in outcomes)
+                        {
+                            AddLine(preview.Lines, $"{CardTitle(outcome.Source)} -> {JoinCards(outcome.Targets)}。");
+                        }
+
+                        AddEntities(preview.Entities, CreateCardEntities(outcomes.SelectMany(outcome => outcome.Targets)));
+                    }
+
+                    break;
+                }
+                case PandorasBox:
+                {
+                    var transformations = PeekPandorasBoxTransformations(darv.Owner);
+                    preview.Coverage = PreviewCoverage.Complete;
+                    if (transformations.Count == 0)
+                    {
+                        AddLine(preview.Lines, "当前没有可转化的打击或防御。");
+                    }
+                    else
+                    {
+                        foreach (var transformation in transformations)
+                        {
+                            AddLine(preview.Lines, $"{CardTitle(transformation.Source)} -> {CardTitle(transformation.Target)}。");
+                        }
+
+                        AddEntities(preview.Entities, CreateCardEntities(transformations.Select(item => item.Target)));
+                    }
+
+                    break;
+                }
+                case CallingBell callingBell:
+                {
+                    var curse = ModelDb.Card<CurseOfTheBell>();
+                    var relicCount = GetIntVarOrDefault(callingBell, "Relics", 3);
+                    var relics = PeekCallingBellRelics(darv.Owner, relicCount);
+                    preview.Coverage = PreviewCoverage.PartialNeedsInput;
+
+                    AddLine(preview.Lines, $"会加入 {CardTitle(curse)}。");
+                    if (relics.Count == 0)
+                    {
+                        AddLine(preview.Lines, $"然后出现 {relicCount} 件遗物奖励。");
+                    }
+                    else
+                    {
+                        AddLine(preview.Lines, $"然后出现 {JoinRelics(relics)}。");
+                        AddEntities(preview.Entities, CreateRelicEntities(relics));
+                    }
+
+                    AddEntities(preview.Entities, CreateCardEntities(new[] { curse }));
+                    break;
+                }
+            }
+        }
+    }
+
+    private static void ApplyVakuuPreview(Vakuu vakuu, IList<EventOptionPreview> previews)
+    {
+        if (vakuu.Owner is null)
+        {
+            return;
+        }
+
+        foreach (var preview in previews.Where(preview => !preview.SourceOption.IsLocked))
+        {
+            if (preview.SourceOption.Relic is not SereTalon sereTalon)
+            {
+                continue;
+            }
+
+            var curseCount = GetIntVarOrDefault(sereTalon, "Curses", 2);
+            var curses = PeekRandomGeneratedCurses(vakuu.Owner, curseCount);
+            preview.Coverage = PreviewCoverage.Complete;
+
+            if (curses.Count == 0)
+            {
+                AddLine(preview.Lines, $"会加入 {curseCount} 张随机诅咒。");
+            }
+            else
+            {
+                AddLine(preview.Lines, $"会加入 {JoinCards(curses)}。");
+                AddEntities(preview.Entities, CreateCardEntities(curses));
+            }
+        }
+    }
+
+    private static void ApplyOrobasPreview(Orobas orobas, IList<EventOptionPreview> previews)
+    {
+        if (orobas.Owner is null)
+        {
+            return;
+        }
+
+        if (TryGetPreviewByTextKey(previews, "GLASS_EYE", out var glassEyePreview))
+        {
+            var rewards = PeekGlassEyeRewards(orobas.Owner);
+            var lines = new List<string>
+            {
+                "玻璃眼会出现 5 组卡牌奖励。"
+            };
+
+            for (var rewardIndex = 0; rewardIndex < rewards.Count; rewardIndex++)
+            {
+                var rarityName = rewardIndex switch
+                {
+                    0 or 1 => "普通",
+                    2 or 3 => "非凡",
+                    _ => "稀有"
+                };
+                lines.Add($"第 {rewardIndex + 1} 组（{rarityName}）：{JoinCards(rewards[rewardIndex])}。");
+            }
+
+            SetPreview(previews, "GLASS_EYE", PreviewCoverage.PartialNeedsInput, lines);
+            AddEntities(glassEyePreview.Entities, CreateCardEntities(rewards.SelectMany(reward => reward)));
+        }
+
+        if (TryGetPreviewByTextKey(previews, "ALCHEMICAL_COFFER", out var alchemicalCofferPreview))
+        {
+            var potionCount = ModelDb.Relic<AlchemicalCoffer>().DynamicVars["PotionSlots"].IntValue;
+            var potions = PeekAlchemicalCofferPotions(orobas.Owner, potionCount);
+            SetPreview(previews, "ALCHEMICAL_COFFER", PreviewCoverage.Complete,
+                potions.Count == 0
+                    ? $"会获得 {potionCount} 个药水栏，并填入随机药水。"
+                    : $"会获得 {potionCount} 个药水栏，并填入 {JoinPotions(potions)}。");
+            AddEntities(alchemicalCofferPreview.Entities, CreatePotionEntities(potions));
+        }
+
+        foreach (var optionPreview in previews.Where(preview => !preview.SourceOption.IsLocked))
+        {
+            switch (optionPreview.SourceOption.Relic)
+            {
+                case SeaGlass seaGlass:
+                {
+                    var rewards = PeekSeaGlassCards(orobas.Owner, seaGlass);
+                    optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+                    optionPreview.Lines.Clear();
+                    AddLine(optionPreview.Lines,
+                        $"海玻璃会出现 {rewards.All.Count} 张 {RandomVisionGameText.ResolveLocString(rewards.Character.Title)} 牌，可任意选择加入。");
+                    if (rewards.Common.Count > 0)
+                    {
+                        AddLine(optionPreview.Lines, $"普通：{JoinCards(rewards.Common)}。");
+                    }
+                    if (rewards.Uncommon.Count > 0)
+                    {
+                        AddLine(optionPreview.Lines, $"非凡：{JoinCards(rewards.Uncommon)}。");
+                    }
+                    if (rewards.Rare.Count > 0)
+                    {
+                        AddLine(optionPreview.Lines, $"稀有：{JoinCards(rewards.Rare)}。");
+                    }
+                    AddEntities(optionPreview.Entities, CreateCardEntities(rewards.All));
+                    break;
+                }
+                case SandCastle sandCastle:
+                {
+                    var upgraded = orobas.Owner.Deck.Cards
+                        .Where(card => card?.IsUpgradable ?? false)
+                        .ToList()
+                        .StableShuffle(CloneRng(orobas.Owner.RunState.Rng.Niche))
+                        .Take(sandCastle.DynamicVars.Cards.IntValue)
+                        .ToList();
+                    optionPreview.Coverage = PreviewCoverage.Complete;
+                    optionPreview.Lines.Clear();
+                    AddLine(optionPreview.Lines,
+                        upgraded.Count == 0 ? "沙堡不会升级任何牌。" : $"沙堡会升级 {JoinCards(upgraded)}。");
+                    AddEntities(optionPreview.Entities, CreateCardEntities(upgraded));
+                    break;
+                }
+            }
+        }
+    }
+
+    private static void ApplyTezcataraPreview(Tezcatara tezcatara, IList<EventOptionPreview> previews)
+    {
+        if (tezcatara.Owner is null)
+        {
+            return;
+        }
+
+        if (TryGetPreviewByTextKey(previews, "TOY_BOX", out var toyBoxPreview))
+        {
+            var relicCount = ModelDb.Relic<ToyBox>().DynamicVars["Relics"].IntValue;
+            var relics = PeekToyBoxRelics(tezcatara.Owner, relicCount);
+            SetPreview(previews, "TOY_BOX", PreviewCoverage.Complete,
+                relics.Count == 0
+                    ? $"玩具箱会提供 {relicCount} 件蜡制遗物。"
+                    : $"玩具箱会提供 {JoinRelics(relics)}。");
+            AddEntities(toyBoxPreview.Entities, CreateRelicEntities(relics));
+        }
+    }
+
+    private static void AddNeowsBonesRelicAdapterPreview(Neow neow, EventOptionPreview parentPreview, RelicModel relic)
+    {
+        var nestedPreview = new EventOptionPreview(parentPreview.SourceOption, RelicTitle(relic), PreviewCoverage.AlreadyVisible);
+        if (!TryApplyNestedNeowRelicPreview(neow, nestedPreview, relic))
+        {
+            return;
+        }
+
+        foreach (var line in nestedPreview.Lines)
+        {
+            AddLine(parentPreview.Lines, $"{RelicTitle(relic)}：{line}");
+        }
+
+        AddEntities(parentPreview.Entities, nestedPreview.Entities);
+    }
+
+    private static bool TryApplyNestedNeowRelicPreview(Neow neow, EventOptionPreview optionPreview, RelicModel relic)
+    {
+        switch (relic)
+        {
+            case LargeCapsule:
+            {
+                var capsuleRelics = PeekNextRelics(neow.Owner!, 2).ToList();
+                optionPreview.Coverage = PreviewCoverage.Complete;
+
+                if (capsuleRelics.Count == 0)
+                {
+                    AddLine(optionPreview.Lines, "巨大扭蛋会再随机获得 2 件遗物。");
+                }
+                else
+                {
+                    AddLine(optionPreview.Lines, $"巨大扭蛋会再获得 {JoinRelics(capsuleRelics)}。");
+                    AddEntities(optionPreview.Entities, CreateRelicEntities(capsuleRelics));
+                }
+
+                return true;
+            }
+            case ArcaneScroll:
+            {
+                var options = new CardCreationOptions(
+                        new[] { neow.Owner!.Character.CardPool },
+                        CardCreationSource.Other,
+                        CardRarityOddsType.Uniform,
+                        card => card.Rarity == CardRarity.Rare)
+                    .WithFlags(CardCreationFlags.NoUpgradeRoll);
+                var cards = PeekRewardCards(neow.Owner!, options, 1).ToList();
+                optionPreview.Coverage = PreviewCoverage.Complete;
+
+                if (cards.Count == 0)
+                {
+                    AddLine(optionPreview.Lines, "奥数卷轴会再获得 1 张稀有牌。");
+                }
+                else
+                {
+                    AddLine(optionPreview.Lines, $"奥数卷轴会再获得 {JoinCards(cards)}。");
+                    AddEntities(optionPreview.Entities, CreateCardEntities(cards));
+                }
+
+                return true;
+            }
+            case LeadPaperweight:
+            {
+                var options = new CardCreationOptions(
+                    new[] { ModelDb.CardPool<ColorlessCardPool>() },
+                    CardCreationSource.Other,
+                    CardRarityOddsType.RegularEncounter);
+                var cards = PeekRewardCards(neow.Owner!, options, 2).ToList();
+                optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+
+                if (cards.Count == 0)
+                {
+                    AddLine(optionPreview.Lines, "铅制镇纸会出现 2 张无色牌供你选择，可跳过。");
+                }
+                else
+                {
+                    AddLine(optionPreview.Lines, $"铅制镇纸会出现 {JoinCards(cards)} 供你 2 选 1，可跳过。");
+                    AddEntities(optionPreview.Entities, CreateCardEntities(cards));
+                }
+
+                return true;
+            }
+            case HeftyTablet:
+            {
+                var optionCount = GetIntVarOrDefault(relic, "Cards", 3);
+                var options = new CardCreationOptions(
+                        new[] { neow.Owner!.Character.CardPool },
+                        CardCreationSource.Other,
+                        CardRarityOddsType.Uniform,
+                        card => card.Rarity == CardRarity.Rare)
+                    .WithFlags(CardCreationFlags.NoUpgradeRoll);
+                var cards = PeekRewardCards(neow.Owner!, options, optionCount).ToList();
+                optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+
+                if (cards.Count == 0)
+                {
+                    AddLine(optionPreview.Lines, $"沉重碑板会出现 {optionCount} 张稀有牌供你选择，并加入 1 张 {CardTitle(ModelDb.Card<Injury>())}。");
+                }
+                else
+                {
+                    AddLine(optionPreview.Lines,
+                        $"沉重碑板会出现 {JoinCards(cards)} 供你 {cards.Count} 选 1，并加入 1 张 {CardTitle(ModelDb.Card<Injury>())}。");
+                    AddEntities(optionPreview.Entities, CreateCardEntities(cards));
+                }
+
+                return true;
+            }
+            case Kaleidoscope:
+            {
+                var rewardCount = GetIntVarOrDefault(relic, "Cards", 2);
+                var rewards = PeekKaleidoscopeRewards(neow.Owner!, rewardCount);
+                optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+
+                if (rewards.Count == 0)
+                {
+                    AddLine(optionPreview.Lines, $"万花筒会出现 {rewardCount} 组其他角色牌奖励。");
+                }
+                else
+                {
+                    AddLine(optionPreview.Lines, $"万花筒会出现 {rewards.Count} 组其他角色牌奖励。");
+                    for (var rewardIndex = 0; rewardIndex < rewards.Count; rewardIndex++)
+                    {
+                        AddLine(optionPreview.Lines, $"Reward {rewardIndex + 1}：{JoinCards(rewards[rewardIndex])}。");
+                    }
+
+                    AddEntities(optionPreview.Entities, CreateCardEntities(rewards.SelectMany(reward => reward)));
+                }
+
+                return true;
+            }
+            case SmallCapsule:
+            {
+                var smallCapsuleRelic = PeekNextRelics(neow.Owner!, 1).FirstOrDefault();
+                optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+
+                if (smallCapsuleRelic is null)
+                {
+                    AddLine(optionPreview.Lines, "小扭蛋会出现 1 件遗物供你选择。");
+                }
+                else
+                {
+                    AddLine(optionPreview.Lines, $"小扭蛋会出现 {RelicTitle(smallCapsuleRelic)}。");
+                    AddEntities(optionPreview.Entities, CreateRelicEntities(new[] { smallCapsuleRelic }));
+                }
+
+                return true;
+            }
+            case MassiveScroll:
+            {
+                var customCardPool = ModelDb.CardPool<ColorlessCardPool>()
+                    .GetUnlockedCards(neow.Owner!.RunState.UnlockState, neow.Owner.RunState.CardMultiplayerConstraint)
+                    .Concat(neow.Owner.Character.CardPool.GetUnlockedCards(neow.Owner.RunState.UnlockState, neow.Owner.RunState.CardMultiplayerConstraint))
+                    .Where(card => card.MultiplayerConstraint == CardMultiplayerConstraint.MultiplayerOnly);
+                var options = new CardCreationOptions(customCardPool, CardCreationSource.Other, CardRarityOddsType.RegularEncounter);
+                var cards = PeekRewardCards(neow.Owner, options, 3).ToList();
+                optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+
+                if (cards.Count == 0)
+                {
+                    AddLine(optionPreview.Lines, "巨型卷轴会出现 3 张多人专属牌供你选择，可跳过。");
+                }
+                else
+                {
+                    AddLine(optionPreview.Lines, $"巨型卷轴会出现 {JoinCards(cards)} 供你 3 选 1，可跳过。");
+                    AddEntities(optionPreview.Entities, CreateCardEntities(cards));
+                }
+
+                return true;
+            }
+            case LostCoffer:
+            {
+                var options = new CardCreationOptions(
+                    new[] { neow.Owner!.Character.CardPool },
+                    CardCreationSource.Other,
+                    CardRarityOddsType.RegularEncounter);
+                var cards = PeekRewardCards(neow.Owner!, options, 3).ToList();
+                var potion = PeekSharedRewardPotion(neow.Owner!);
+                optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+
+                if (cards.Count == 0)
+                {
+                    AddLine(optionPreview.Lines, "失落宝箱会出现 1 组 3 张牌奖励。");
+                }
+                else
+                {
+                    AddLine(optionPreview.Lines, $"失落宝箱会出现 {JoinCards(cards)} 供你 3 选 1。");
+                    AddEntities(optionPreview.Entities, CreateCardEntities(cards));
+                }
+
+                AddLine(optionPreview.Lines, potion is null ? "同时会再获得 1 瓶药水。" : $"同时会再获得 {PotionTitle(potion)}。");
+                if (potion is not null)
+                {
+                    AddEntities(optionPreview.Entities, RandomVisionGameText.ExtractPreviewEntities(potion.HoverTips));
+                }
+
+                return true;
+            }
+            case PhialHolster phialHolster:
+            {
+                var potionSlots = GetIntVarOrDefault(phialHolster, "PotionSlots", 1);
+                var potionCount = GetIntVarOrDefault(phialHolster, "Potions", 2);
+                var potions = PeekPhialHolsterPotions(neow.Owner!, potionCount);
+                optionPreview.Coverage = PreviewCoverage.Complete;
+
+                AddLine(optionPreview.Lines, $"药瓶套会增加 {potionSlots} 个药水栏位。");
+                if (potions.Count == 0)
+                {
+                    AddLine(optionPreview.Lines, $"然后获得 {potionCount} 瓶随机药水。");
+                }
+                else
+                {
+                    AddLine(optionPreview.Lines, $"然后获得 {JoinPotions(potions)}。");
+                    AddEntities(optionPreview.Entities, CreatePotionEntities(potions));
+                }
+
+                return true;
+            }
+            case LeafyPoultice:
+            {
+                var transformedCards = PredictLeafyPoulticeTransformCards(neow.Owner!);
+                optionPreview.Coverage = PreviewCoverage.Complete;
+
+                if (transformedCards.Count == 0)
+                {
+                    AddLine(optionPreview.Lines, "当前没有可被树叶药膏变化的基础打击或基础防御。");
+                }
+                else
+                {
+                    foreach (var transformedCard in transformedCards)
+                    {
+                        AddLine(optionPreview.Lines,
+                            $"{CardTitle(transformedCard.Original)} 会变成 {CardTitle(transformedCard.Transformed)}。");
+                    }
+
+                    AddEntities(optionPreview.Entities, CreateCardEntities(
+                        transformedCards.Select(result => result.Transformed)));
+                }
+
+                return true;
+            }
+            case NewLeaf:
+            {
+                var mappings = BuildTransformSelectionMappings(neow.Owner!, neow.Owner!.RunState.Rng.Niche);
+                optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+                foreach (var line in BuildTransformSelectionPreview(mappings, 1))
+                {
+                    AddLine(optionPreview.Lines, line);
+                }
+
+                AddEntities(optionPreview.Entities, CreateCardEntities(mappings.Select(item => item.Target)));
+                return true;
+            }
+            case ScrollBoxes:
+            {
+                var bundles = PeekScrollBoxesBundles(neow.Owner!);
+                optionPreview.Coverage = PreviewCoverage.PartialNeedsInput;
+                AddLine(optionPreview.Lines, $"卷轴盒会先失去全部金币（当前 {neow.Owner!.Gold}）。");
+
+                if (bundles.Count == 0)
+                {
+                    AddLine(optionPreview.Lines, "之后会出现 2 组随机卡牌 bundle 供你选择。");
+                }
+                else
+                {
+                    for (var bundleIndex = 0; bundleIndex < bundles.Count; bundleIndex++)
+                    {
+                        AddLine(optionPreview.Lines, $"Bundle {bundleIndex + 1}：{JoinCards(bundles[bundleIndex])}。");
+                    }
+
+                    AddEntities(optionPreview.Entities, CreateCardEntities(bundles.SelectMany(bundle => bundle).ToList()));
+                }
+
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
     private static void ApplyTrialPreview(Trial trial, IList<EventOptionPreview> previews)
     {
         if (TryGetPreviewByTextKey(previews, "DOUBLE_DOWN", out _))
         {
-            var acceptLines = BuildTrialAcceptLines(CloneRng(trial.Rng).NextInt(3));
-            SetPreview(previews, "ACCEPT", PreviewCoverage.Complete, acceptLines);
+            ApplyTrialAcceptPreview(trial, previews, "ACCEPT");
             SetPreview(previews, "DOUBLE_DOWN", PreviewCoverage.Complete, "直接弃掉本次 run。");
             return;
         }
 
         if (TryGetPreviewByTextKey(previews, "INITIAL.options.ACCEPT", out _))
         {
-            var acceptLines = BuildTrialAcceptLines(CloneRng(trial.Rng).NextInt(3));
-            SetPreview(previews, "INITIAL.options.ACCEPT", PreviewCoverage.Complete, acceptLines);
+            ApplyTrialAcceptPreview(trial, previews, "INITIAL.options.ACCEPT");
             SetPreview(previews, "INITIAL.options.REJECT", PreviewCoverage.Complete,
                 "会先进入拒绝页。",
                 "下一步可重新接受审判，或双倍下注直接弃局。");
             return;
         }
 
-        if (TryGetPreviewByTextKey(previews, "MERCHANT.options.GUILTY", out _))
+        if (TryGetPreviewByTextKey(previews, "MERCHANT.options.GUILTY", out var merchantGuiltyPreview))
         {
             var merchantRelics = PeekNextRelics(trial.Owner!, 2).ToList();
             SetPreview(previews, "MERCHANT.options.GUILTY", PreviewCoverage.Complete,
                 "获得诅咒遗憾。",
                 merchantRelics.Count == 0 ? "再获得 2 件遗物。" : $"再获得 {JoinRelics(merchantRelics)}。");
+            AddEntities(merchantGuiltyPreview.Entities, CreateRelicEntities(merchantRelics));
             SetPreview(previews, "MERCHANT.options.INNOCENT", PreviewCoverage.PartialNeedsInput,
                 "获得诅咒羞耻。",
                 "还需要再选择 2 张牌进行升级。");
@@ -552,18 +1190,85 @@ internal static class RandomVisionPreviewRegistry
             return;
         }
 
-        if (TryGetPreviewByTextKey(previews, "NONDESCRIPT.options.GUILTY", out _))
+        if (TryGetPreviewByTextKey(previews, "NONDESCRIPT.options.GUILTY", out var nondescriptGuiltyPreview))
         {
+            var rewards = PeekTrialCardRewards(trial.Owner!, 2);
+            var guiltyLines = new List<string>
+            {
+                "获得诅咒怀疑。"
+            };
+            if (rewards.Count == 0)
+            {
+                guiltyLines.Add("之后会出现 2 组选卡奖励。");
+            }
+            else
+            {
+                for (var rewardIndex = 0; rewardIndex < rewards.Count; rewardIndex++)
+                {
+                    guiltyLines.Add($"奖励 {rewardIndex + 1}：{JoinCards(rewards[rewardIndex])}。");
+                }
+            }
+
             SetPreview(previews, "NONDESCRIPT.options.GUILTY", PreviewCoverage.PartialNeedsInput,
-                "获得诅咒怀疑。",
-                "之后会出现 2 组选卡奖励。");
+                guiltyLines);
+            AddEntities(nondescriptGuiltyPreview.Entities, CreateCardEntities(rewards.SelectMany(reward => reward)));
             var innocentLines = new List<string>
             {
                 "获得诅咒怀疑。"
             };
-            innocentLines.AddRange(BuildTransformSelectionPreview(trial.Owner!, trial.Owner!.RunState.Rng.Niche, 2));
+            var innocentOutcomes = PeekTrialTransformOutcomes(trial.Owner!, trial.Rng, 2);
+            innocentLines.AddRange(BuildOrderedTransformOutcomeLines(innocentOutcomes, 2));
             SetPreview(previews, "NONDESCRIPT.options.INNOCENT", PreviewCoverage.PartialNeedsInput, innocentLines);
+            if (TryGetPreviewByTextKey(previews, "NONDESCRIPT.options.INNOCENT", out var nondescriptInnocentPreview))
+            {
+                AddEntities(nondescriptInnocentPreview.Entities, CreateCardEntities(innocentOutcomes.SelectMany(outcome => outcome.Targets)));
+            }
         }
+    }
+
+    private static void ApplyTrialAcceptPreview(Trial trial, IList<EventOptionPreview> previews, string textKeySnippet)
+    {
+        if (!TryGetPreviewByTextKey(previews, textKeySnippet, out var preview))
+        {
+            return;
+        }
+
+        var branchRng = CloneRng(trial.Rng);
+        var branch = branchRng.NextInt(3);
+        var lines = BuildTrialAcceptLines(branch).ToList();
+        if (trial.Owner is not null)
+        {
+            switch (branch)
+            {
+                case 0:
+                {
+                    var relics = PeekNextRelics(trial.Owner, 2).ToList();
+                    if (relics.Count > 0)
+                    {
+                        lines.Add($"预测有罪奖励：{JoinRelics(relics)}。");
+                        AddEntities(preview.Entities, CreateRelicEntities(relics));
+                    }
+                    break;
+                }
+                case 2:
+                {
+                    var rewards = PeekTrialCardRewards(trial.Owner, 2);
+                    for (var rewardIndex = 0; rewardIndex < rewards.Count; rewardIndex++)
+                    {
+                        lines.Add($"预测有罪奖励 {rewardIndex + 1}：{JoinCards(rewards[rewardIndex])}。");
+                    }
+                    AddEntities(preview.Entities, CreateCardEntities(rewards.SelectMany(reward => reward)));
+
+                    var innocentOutcomes = PeekTrialTransformOutcomes(trial.Owner, branchRng, 2);
+                    lines.Add("预测无罪转化：");
+                    lines.AddRange(BuildOrderedTransformOutcomeLines(innocentOutcomes, 2));
+                    AddEntities(preview.Entities, CreateCardEntities(innocentOutcomes.SelectMany(outcome => outcome.Targets)));
+                    break;
+                }
+            }
+        }
+
+        SetPreview(previews, textKeySnippet, PreviewCoverage.Complete, lines);
     }
 
     private static IReadOnlyList<(CardModel Original, CardModel Transformed)> PredictLeafyPoulticeTransformCards(Player player)
@@ -614,6 +1319,24 @@ internal static class RandomVisionPreviewRegistry
         };
     }
 
+    private static IReadOnlyList<IReadOnlyList<CardModel>> PeekTrialCardRewards(Player player, int rewardCount)
+    {
+        var rewards = new List<IReadOnlyList<CardModel>>();
+        var rewardState = new RewardPreviewState(player);
+
+        for (var rewardIndex = 0; rewardIndex < rewardCount; rewardIndex++)
+        {
+            var options = CardCreationOptions.ForNonCombatWithDefaultOdds(new[] { player.Character.CardPool });
+            var cards = PeekRewardCards(player, rewardState, options, 3);
+            if (cards.Count > 0)
+            {
+                rewards.Add(cards);
+            }
+        }
+
+        return rewards;
+    }
+
     private static void ApplySlipperyBridgePreview(SlipperyBridge bridge, IList<EventOptionPreview> previews)
     {
         if (!TryGetPreviewByTextKey(previews, "OVERCOME", out _))
@@ -638,14 +1361,25 @@ internal static class RandomVisionPreviewRegistry
             $"先承受 {bridge.DynamicVars["HpLoss"].IntValue} 点伤害。"
         };
 
-        var nextCard = PredictNextSlipperyBridgeCard(bridge, currentCard);
-        if (nextCard is not null)
+        var outcomes = PredictNextSlipperyBridgeHoldOns(bridge, currentCard, 10);
+        if (outcomes.Count == 0)
         {
-            lines.Add($"下一轮会改为失去 {CardTitle(nextCard)}。");
+            lines.Add("之后没有可预测的可移除牌。");
+        }
+        else
+        {
+            foreach (var outcome in outcomes)
+            {
+                lines.Add($"坚持 {outcome.Step}：承受 {outcome.HpLoss} 点伤害，之后跨桥会失去 {CardTitle(outcome.Card)}。");
+            }
         }
 
-        lines.Add("之后仍可继续坚持，或直接跨桥。");
+        lines.Add("每次坚持后仍可继续坚持，或直接跨桥。");
         SetPreview(previews, "HOLD_ON", PreviewCoverage.Complete, lines);
+        if (TryGetPreviewByTextKey(previews, "HOLD_ON", out var holdOnPreview))
+        {
+            AddEntities(holdOnPreview.Entities, CreateCardEntities(outcomes.Select(outcome => outcome.Card)));
+        }
     }
 
     private static void ApplyDollRoomPreview(DollRoom dollRoom, IList<EventOptionPreview> previews)
@@ -684,39 +1418,46 @@ internal static class RandomVisionPreviewRegistry
 
     private static void ApplyReflectionsPreview(Reflections reflections, IList<EventOptionPreview> previews)
     {
-        if (TryGetPreviewByTextKey(previews, "TOUCH_A_MIRROR", out _))
+        if (TryGetPreviewByTextKey(previews, "TOUCH_A_MIRROR", out var touchMirrorPreview))
         {
             SetPreview(previews, "TOUCH_A_MIRROR", PreviewCoverage.Complete, BuildReflectionsLines(reflections));
+            var affectedCards = PredictReflectionsCards(reflections);
+            AddEntities(touchMirrorPreview.Entities, CreateCardEntities(affectedCards.Downgraded.Concat(affectedCards.Upgraded)));
         }
 
-        if (TryGetPreviewByTextKey(previews, "SHATTER", out _))
+        if (TryGetPreviewByTextKey(previews, "SHATTER", out var shatterPreview))
         {
             SetPreview(previews, "SHATTER", PreviewCoverage.Complete,
                 "复制整副牌。",
                 $"再加入 {CardTitle(ModelDb.Card<BadLuck>())}。");
+            AddEntities(shatterPreview.Entities, CreateCardEntities(reflections.Owner!.Deck.Cards.Concat(new[] { ModelDb.Card<BadLuck>() })));
         }
     }
 
     private static void ApplyDoorsPreview(DoorsOfLightAndDark doors, IList<EventOptionPreview> previews)
     {
-        if (TryGetPreviewByTextKey(previews, "LIGHT", out _))
+        if (TryGetPreviewByTextKey(previews, "LIGHT", out var lightPreview))
         {
             var cards = doors.Owner!.Deck.Cards
                 .Where(card => card?.IsUpgradable ?? false)
                 .ToList();
             var upgraded = cards
-                .StableShuffle(CloneRng(doors.Owner.RunState.Rng.Niche))
-                .Take(doors.DynamicVars.Cards.IntValue)
+                .StableShuffle(CloneRng(doors.Rng))
+                .Take(2)
                 .ToList();
 
             if (upgraded.Count > 0)
             {
+                var prefix = upgraded.Count == 1
+                    ? "Light Door will upgrade the only available card"
+                    : "Light Door will upgrade 2 random cards";
                 SetPreview(previews, "LIGHT", PreviewCoverage.Complete,
-                    $"升级 {JoinCards(upgraded)}。");
+                    $"{prefix}: {JoinCards(upgraded)}.");
+                AddEntities(lightPreview.Entities, CreateCardEntities(upgraded));
             }
             else
             {
-                SetPreview(previews, "LIGHT", PreviewCoverage.Complete, "当前没有可升级的牌。");
+                SetPreview(previews, "LIGHT", PreviewCoverage.Complete, "Light Door has no upgradable cards.");
             }
         }
 
@@ -727,9 +1468,56 @@ internal static class RandomVisionPreviewRegistry
         }
     }
 
+    private static void ApplyTabletOfTruthPreview(TabletOfTruth tablet, IList<EventOptionPreview> previews)
+    {
+        foreach (var preview in previews)
+        {
+            if (preview.SourceOption.IsLocked ||
+                !preview.SourceOption.TextKey.Contains("DECIPHER", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var outcomes = PeekTabletOfTruthUpgradeOrder(tablet);
+            var lines = new List<string>();
+            var currentCount = Math.Clamp(GetTabletOfTruthDecipherCount(tablet), 1, 4);
+            foreach (var outcome in outcomes)
+            {
+                var prefix = outcome.DecipherCount == currentCount ? "本次" : $"第 {outcome.DecipherCount} 次";
+                if (outcome.UpgradesAll)
+                {
+                    lines.Add(outcome.Cards.Count == 0
+                        ? $"{prefix} decipher：失去 {outcome.MaxHpLoss} 最大生命，然后没有可升级的牌。"
+                        : $"{prefix} decipher：失去 {outcome.MaxHpLoss} 最大生命，然后升级全部剩余可升级牌：{JoinCards(outcome.Cards)}。");
+                }
+                else
+                {
+                    lines.Add(outcome.Cards.Count == 0
+                        ? $"{prefix} decipher：失去 {outcome.MaxHpLoss} 最大生命，然后没有可升级的牌。"
+                        : $"{prefix} decipher：失去 {outcome.MaxHpLoss} 最大生命，升级 {JoinCards(outcome.Cards)}。");
+                }
+            }
+
+            if (lines.Count == 0)
+            {
+                lines.Add("没有更多 decipher 升级可预测。");
+            }
+
+            preview.Coverage = PreviewCoverage.Complete;
+            preview.Lines.Clear();
+            foreach (var line in lines)
+            {
+                AddLine(preview.Lines, line);
+            }
+
+            preview.Entities.Clear();
+            AddEntities(preview.Entities, CreateCardEntities(outcomes.SelectMany(outcome => outcome.Cards)));
+        }
+    }
+
     private static void ApplyTrashHeapPreview(TrashHeap trashHeap, IList<EventOptionPreview> previews)
     {
-        if (TryGetPreviewByTextKey(previews, "DIVE_IN", out _))
+        if (TryGetPreviewByTextKey(previews, "DIVE_IN", out var diveInPreview))
         {
             var diveRelic = CloneRng(trashHeap.Rng).NextItem(new RelicModel[]
             {
@@ -745,10 +1533,11 @@ internal static class RandomVisionPreviewRegistry
                 SetPreview(previews, "DIVE_IN", PreviewCoverage.Complete,
                     $"先失去 {trashHeap.DynamicVars.HpLoss.IntValue} 点生命。",
                     $"再获得 {RelicTitle(diveRelic)}。");
+                AddEntities(diveInPreview.Entities, CreateRelicEntities(new[] { diveRelic }));
             }
         }
 
-        if (TryGetPreviewByTextKey(previews, "GRAB", out _))
+        if (TryGetPreviewByTextKey(previews, "GRAB", out var grabPreview))
         {
             var grabCard = CloneRng(trashHeap.Rng).NextItem(new CardModel[]
             {
@@ -769,6 +1558,7 @@ internal static class RandomVisionPreviewRegistry
                 SetPreview(previews, "GRAB", PreviewCoverage.Complete,
                     $"获得 {trashHeap.DynamicVars.Gold.IntValue} 金币。",
                     $"再拿到 {CardTitle(grabCard)}。");
+                AddEntities(grabPreview.Entities, CreateCardEntities(new[] { grabCard }));
             }
         }
     }
@@ -783,6 +1573,7 @@ internal static class RandomVisionPreviewRegistry
                 SetPreview(previews, "BARGAIN_BIN", PreviewCoverage.Complete,
                     $"花费 {wongos.DynamicVars["BargainBinCost"].IntValue} 金币。",
                     $"会拿到 {RelicTitle(commonRelic)}。");
+                AddEntities(bargainBinPreview.Entities, CreateRelicEntities(new[] { commonRelic }));
             }
         }
 
@@ -794,6 +1585,7 @@ internal static class RandomVisionPreviewRegistry
                 SetPreview(previews, "FEATURED_ITEM", PreviewCoverage.Complete,
                     $"花费 {wongos.DynamicVars["FeaturedItemCost"].IntValue} 金币。",
                     $"会拿到 {RelicTitle(featuredItem)}。");
+                AddEntities(featuredPreview.Entities, CreateRelicEntities(new[] { featuredItem }));
             }
         }
 
@@ -802,15 +1594,20 @@ internal static class RandomVisionPreviewRegistry
             SetPreview(previews, "MYSTERY_BOX", PreviewCoverage.Complete,
                 $"花费 {wongos.DynamicVars["MysteryBoxCost"].IntValue} 金币。",
                 $"会拿到 {RelicTitle(ModelDb.Relic<WongosMysteryTicket>())}。");
+            AddEntities(mysteryPreview.Entities, CreateRelicEntities(new[] { ModelDb.Relic<WongosMysteryTicket>() }));
         }
 
-        if (TryGetPreviewByTextKey(previews, "LEAVE", out _))
+        if (TryGetPreviewByTextKey(previews, "LEAVE", out var leavePreview))
         {
             var downgraded = CloneRng(wongos.Rng).NextItem(wongos.Owner!.Deck.Cards.Where(card => card.IsUpgraded));
             SetPreview(previews, "LEAVE", PreviewCoverage.Complete,
                 downgraded is null
                     ? "离开时不会降级任何牌。"
                     : $"离开时会降级 {CardTitle(downgraded)}。");
+            if (downgraded is not null)
+            {
+                AddEntities(leavePreview.Entities, CreateCardEntities(new[] { downgraded }));
+            }
         }
     }
 
@@ -845,6 +1642,10 @@ internal static class RandomVisionPreviewRegistry
             SetPreview(previews, "INITIAL.options.POTION", PreviewCoverage.Complete,
                 $"交出 {potionName}。",
                 rewardRelic is null ? "随后获得 1 件遗物。" : $"随后获得 {RelicTitle(rewardRelic)}。");
+            if (rewardRelic is not null)
+            {
+                SetEntities(previews, "INITIAL.options.POTION", CreateRelicEntities(new[] { rewardRelic }));
+            }
         }
 
         if (TryGetPreviewByTextKey(previews, "INITIAL.options.GOLD", out _))
@@ -852,6 +1653,10 @@ internal static class RandomVisionPreviewRegistry
             SetPreview(previews, "INITIAL.options.GOLD", PreviewCoverage.Complete,
                 $"花费 {ranwid.DynamicVars.Gold.IntValue} 金币。",
                 rewardRelic is null ? "随后获得 1 件遗物。" : $"随后获得 {RelicTitle(rewardRelic)}。");
+            if (rewardRelic is not null)
+            {
+                SetEntities(previews, "INITIAL.options.GOLD", CreateRelicEntities(new[] { rewardRelic }));
+            }
         }
 
         if (TryGetStringVar(ranwid, "Relic", out var relicName))
@@ -859,6 +1664,10 @@ internal static class RandomVisionPreviewRegistry
             SetPreview(previews, "INITIAL.options.RELIC", PreviewCoverage.Complete,
                 $"交出 {relicName}。",
                 rewardRelics.Count == 0 ? "随后获得 2 件遗物。" : $"随后获得 {JoinRelics(rewardRelics)}。");
+            if (rewardRelics.Count > 0)
+            {
+                SetEntities(previews, "INITIAL.options.RELIC", CreateRelicEntities(rewardRelics));
+            }
         }
     }
 
@@ -866,16 +1675,20 @@ internal static class RandomVisionPreviewRegistry
     {
         var owner = dummy.Owner!;
 
-        if (TryGetPreviewByTextKey(previews, "SETTING_1", out _))
+        if (TryGetPreviewByTextKey(previews, "SETTING_1", out var setting1Preview))
         {
             var potion = PeekSharedRewardPotion(owner);
             SetPreview(previews, "SETTING_1", PreviewCoverage.PartialNeedsInput,
                 potion is null
                     ? "战斗胜利后会获得 1 瓶药水；超时则无奖励。"
                     : $"战斗胜利后会获得 {PotionTitle(potion)}；超时则无奖励。");
+            if (potion is not null)
+            {
+                AddEntities(setting1Preview.Entities, CreatePotionEntities(new[] { potion }));
+            }
         }
 
-        if (TryGetPreviewByTextKey(previews, "SETTING_2", out _))
+        if (TryGetPreviewByTextKey(previews, "SETTING_2", out var setting2Preview))
         {
             var upgraded = owner.Deck.Cards
                 .Where(card => card?.IsUpgradable ?? false)
@@ -887,15 +1700,20 @@ internal static class RandomVisionPreviewRegistry
                 upgraded.Count == 0
                     ? "战斗胜利后不会升级任何牌；超时则无奖励。"
                     : $"战斗胜利后会升级 {JoinCards(upgraded)}；超时则无奖励。");
+            AddEntities(setting2Preview.Entities, CreateCardEntities(upgraded));
         }
 
-        if (TryGetPreviewByTextKey(previews, "SETTING_3", out _))
+        if (TryGetPreviewByTextKey(previews, "SETTING_3", out var setting3Preview))
         {
             var relic = PeekNextRelics(owner, 1).FirstOrDefault();
             SetPreview(previews, "SETTING_3", PreviewCoverage.PartialNeedsInput,
                 relic is null
                     ? "战斗胜利后会获得下一件遗物；超时则无奖励。"
                     : $"战斗胜利后会获得 {RelicTitle(relic)}；超时则无奖励。");
+            if (relic is not null)
+            {
+                AddEntities(setting3Preview.Entities, CreateRelicEntities(new[] { relic }));
+            }
         }
     }
 
@@ -908,7 +1726,7 @@ internal static class RandomVisionPreviewRegistry
                 $"再获得 {thisOrThat.DynamicVars.Gold.IntValue} 金币。");
         }
 
-        if (TryGetPreviewByTextKey(previews, "ORNATE", out _))
+        if (TryGetPreviewByTextKey(previews, "ORNATE", out var ornatePreview))
         {
             var relic = PeekNextRelics(thisOrThat.Owner!, 1).FirstOrDefault();
             if (relic is not null)
@@ -916,16 +1734,19 @@ internal static class RandomVisionPreviewRegistry
                 SetPreview(previews, "ORNATE", PreviewCoverage.Complete,
                     $"获得 {RelicTitle(relic)}。",
                     $"再加入 {CardTitle(ModelDb.Card<Clumsy>())}。");
+                AddEntities(ornatePreview.Entities, CreateRelicEntities(new[] { relic }));
             }
         }
     }
 
     private static void ApplyAromaOfChaosPreview(AromaOfChaos aromaOfChaos, IList<EventOptionPreview> previews)
     {
-        if (TryGetPreviewByTextKey(previews, "LET_GO", out _))
+        if (TryGetPreviewByTextKey(previews, "LET_GO", out var letGoPreview))
         {
+            var mappings = BuildTransformSelectionMappings(aromaOfChaos.Owner!, aromaOfChaos.Rng);
             SetPreview(previews, "LET_GO", PreviewCoverage.PartialNeedsInput,
-                BuildTransformSelectionPreview(aromaOfChaos.Owner!, aromaOfChaos.Rng, 1));
+                BuildTransformSelectionPreview(mappings, 1));
+            AddEntities(letGoPreview.Entities, CreateCardEntities(mappings.Select(item => item.Target)));
         }
 
         if (TryGetPreviewByTextKey(previews, "MAINTAIN_CONTROL", out _))
@@ -938,14 +1759,16 @@ internal static class RandomVisionPreviewRegistry
 
     private static void ApplyMorphicGrovePreview(MorphicGrove morphicGrove, IList<EventOptionPreview> previews)
     {
-        if (TryGetPreviewByTextKey(previews, "GROUP", out _))
+        if (TryGetPreviewByTextKey(previews, "GROUP", out var groupPreview))
         {
+            var outcomes = PeekTrialTransformOutcomes(morphicGrove.Owner!, morphicGrove.Rng, 2);
             var lines = new List<string>
             {
-                $"先失去 {morphicGrove.DynamicVars.Gold.IntValue} 金币。"
+                "选择 2 张牌变化；结果会随选择顺序变化。"
             };
-            lines.AddRange(BuildTransformSelectionPreview(morphicGrove.Owner!, morphicGrove.Owner!.RunState.Rng.Niche, 2));
+            lines.AddRange(BuildOrderedTransformOutcomeLines(outcomes, 2));
             SetPreview(previews, "GROUP", PreviewCoverage.PartialNeedsInput, lines);
+            AddEntities(groupPreview.Entities, CreateCardEntities(outcomes.SelectMany(outcome => outcome.Targets)));
         }
 
         if (TryGetPreviewByTextKey(previews, "LONER", out _))
@@ -985,11 +1808,15 @@ internal static class RandomVisionPreviewRegistry
 
     private static void ApplyWellspringPreview(Wellspring wellspring, IList<EventOptionPreview> previews)
     {
-        if (TryGetPreviewByTextKey(previews, "BOTTLE", out _))
+        if (TryGetPreviewByTextKey(previews, "BOTTLE", out var bottlePreview))
         {
-            var potion = PeekSharedRewardPotion(wellspring.Owner!);
+            var potion = PeekOutOfCombatPotions(wellspring.Owner!, 1).FirstOrDefault();
             SetPreview(previews, "BOTTLE", PreviewCoverage.Complete,
                 potion is null ? "会获得 1 瓶药水。" : $"会获得 {PotionTitle(potion)}。");
+            if (potion is not null)
+            {
+                AddEntities(bottlePreview.Entities, CreatePotionEntities(new[] { potion }));
+            }
         }
 
         if (TryGetPreviewByTextKey(previews, "BATHE", out _))
@@ -1002,21 +1829,25 @@ internal static class RandomVisionPreviewRegistry
 
     private static void ApplyWhisperingHollowPreview(WhisperingHollow whisperingHollow, IList<EventOptionPreview> previews)
     {
-        if (TryGetPreviewByTextKey(previews, "GOLD", out _))
+        if (TryGetPreviewByTextKey(previews, "GOLD", out var goldPreview))
         {
+            var potions = PeekOutOfCombatPotions(whisperingHollow.Owner!, 2);
             SetPreview(previews, "GOLD", PreviewCoverage.Complete,
                 $"花费 {whisperingHollow.DynamicVars.Gold.IntValue} 金币。",
-                "之后会获得 2 瓶药水。");
+                potions.Count == 0 ? "之后会获得 2 瓶药水。" : $"之后会获得 {JoinPotions(potions)}。");
+            AddEntities(goldPreview.Entities, CreatePotionEntities(potions));
         }
 
-        if (TryGetPreviewByTextKey(previews, "HUG", out _))
+        if (TryGetPreviewByTextKey(previews, "HUG", out var hugPreview))
         {
+            var mappings = BuildTransformSelectionMappings(whisperingHollow.Owner!, whisperingHollow.Rng);
             var lines = new List<string>
             {
                 $"先失去 {whisperingHollow.DynamicVars.HpLoss.IntValue} 点生命。"
             };
-            lines.AddRange(BuildTransformSelectionPreview(whisperingHollow.Owner!, whisperingHollow.Rng, 1));
+            lines.AddRange(BuildTransformSelectionPreview(mappings, 1));
             SetPreview(previews, "HUG", PreviewCoverage.PartialNeedsInput, lines);
+            AddEntities(hugPreview.Entities, CreateCardEntities(mappings.Select(item => item.Target)));
         }
     }
 
@@ -1125,10 +1956,12 @@ internal static class RandomVisionPreviewRegistry
                 $"选定后会附加 {enchantmentName}。");
         }
 
-        if (TryGetPreviewByTextKey(previews, "KILL_WITH_FIRE", out _))
+        if (TryGetPreviewByTextKey(previews, "KILL_WITH_FIRE", out var killWithFirePreview))
         {
+            var mappings = BuildTransformSelectionMappings(symbiote.Owner!, symbiote.Rng);
             SetPreview(previews, "KILL_WITH_FIRE", PreviewCoverage.PartialNeedsInput,
-                BuildTransformSelectionPreview(symbiote.Owner!, symbiote.Rng, symbiote.DynamicVars.Cards.IntValue));
+                BuildTransformSelectionPreview(mappings, symbiote.DynamicVars.Cards.IntValue));
+            AddEntities(killWithFirePreview.Entities, CreateCardEntities(mappings.Select(item => item.Target)));
         }
     }
 
@@ -1189,6 +2022,7 @@ internal static class RandomVisionPreviewRegistry
                 SetPreview(previews, "OFFER_TRIBUTE", PreviewCoverage.Complete,
                     $"花费 {choir.DynamicVars.Gold.IntValue} 金币。",
                     $"会拿到 {RelicTitle(relic)}。");
+                AddEntities(tributePreview.Entities, CreateRelicEntities(new[] { relic }));
             }
         }
     }
@@ -1315,11 +2149,30 @@ internal static class RandomVisionPreviewRegistry
 
         if (TryGetPreviewByTextKey(previews, "I_CAN_TAKE_THEM", out var takeThemPreview) && !takeThemPreview.SourceOption.IsLocked)
         {
-            takeThemPreview.Coverage = PreviewCoverage.PartialNeedsInput;
-            takeThemPreview.Lines.Clear();
-            AddLine(takeThemPreview.Lines, "会先进入下一页。");
-            AddLine(takeThemPreview.Lines, "下一页可选择开打；若战斗胜利，奖励包含 1 件遗物和 1 瓶药水。");
+            ApplyPunchOffFightRewardPreview(punchOff, takeThemPreview, "会先进入下一页。下一页开打胜利后：");
         }
+
+        if (TryGetPreviewByTextKey(previews, "FIGHT", out var fightPreview) && !fightPreview.SourceOption.IsLocked)
+        {
+            ApplyPunchOffFightRewardPreview(punchOff, fightPreview, "战斗胜利后：");
+        }
+    }
+
+    private static void ApplyPunchOffFightRewardPreview(PunchOff punchOff, EventOptionPreview preview, string prefix)
+    {
+        var rewards = PeekPunchOffFightRewards(punchOff.Owner!);
+
+        preview.Coverage = PreviewCoverage.PartialNeedsInput;
+        preview.Lines.Clear();
+        AddLine(preview.Lines, prefix);
+        AddLine(preview.Lines, rewards.Relics.Count == 0 ? "获得 1 件遗物。" : $"获得 {JoinRelics(rewards.Relics)}。");
+        AddLine(preview.Lines, rewards.Potions.Count == 0 ? "获得 1 瓶药水。" : $"获得 {JoinPotions(rewards.Potions)}。");
+        AddLine(preview.Lines, rewards.Cards.Count == 0 ? "出现 1 组选卡奖励。" : $"选卡奖励：{JoinCards(rewards.Cards)}。");
+
+        preview.Entities.Clear();
+        AddEntities(preview.Entities, CreateRelicEntities(rewards.Relics));
+        AddEntities(preview.Entities, CreatePotionEntities(rewards.Potions));
+        AddEntities(preview.Entities, CreateCardEntities(rewards.Cards));
     }
 
     private static void ApplyTheFutureOfPotionsPreview(TheFutureOfPotions theFutureOfPotions, IList<EventOptionPreview> previews)
@@ -1522,74 +2375,251 @@ internal static class RandomVisionPreviewRegistry
 
     private static void ApplyEndlessConveyorPreview(EndlessConveyor endlessConveyor, IList<EventOptionPreview> previews)
     {
-        if (TryGetPreviewByTextKey(previews, "OBSERVE_CHEF", out _))
+        if (TryGetPreviewByTextKey(previews, "OBSERVE_CHEF", out var observeChefPreview))
         {
             var upgraded = CloneRng(endlessConveyor.Rng).NextItem(endlessConveyor.Owner!.Deck.Cards.Where(card => card.IsUpgradable));
             SetPreview(previews, "OBSERVE_CHEF", PreviewCoverage.Complete,
                 upgraded is null ? "不会升级任何牌。" : $"会升级 {CardTitle(upgraded)}。");
+            if (upgraded is not null)
+            {
+                AddEntities(observeChefPreview.Entities, CreateCardEntities(new[] { upgraded }));
+            }
         }
 
-        if (TryGetStringVar(endlessConveyor, "CurrentDishTitle", out var currentDishTitle))
+        var currentDishId = GetEndlessConveyorCurrentDishId(endlessConveyor);
+        if (!string.IsNullOrWhiteSpace(currentDishId) &&
+            TryDescribeEndlessDish(endlessConveyor, currentDishId, out var dishLines))
         {
-            if (TryDescribeEndlessDish(endlessConveyor, currentDishTitle, out var dishLines))
+            var key = currentDishId;
+            if (TryGetPreviewByTextKey(previews, "LOCKED", out var lockedPreview) && lockedPreview.SourceOption.IsLocked)
             {
-                var key = currentDishTitle;
-                if (TryGetPreviewByTextKey(previews, "LOCKED", out var lockedPreview) && lockedPreview.SourceOption.IsLocked)
-                {
-                    key = "LOCKED";
-                }
-
-                SetPreview(previews, key, PreviewCoverage.PartialNeedsInput, dishLines);
+                key = "LOCKED";
             }
+
+            var lines = dishLines.ToList();
+            lines.AddRange(BuildEndlessConveyorSequenceLines(endlessConveyor));
+            SetPreview(previews, key, PreviewCoverage.PartialNeedsInput, lines);
         }
     }
 
-    private static bool TryDescribeEndlessDish(EndlessConveyor endlessConveyor, string currentDishTitle, out IReadOnlyList<string> lines)
+    private static IReadOnlyList<string> BuildEndlessConveyorSequenceLines(EndlessConveyor endlessConveyor)
+    {
+        var currentDishId = GetEndlessConveyorCurrentDishId(endlessConveyor);
+        if (string.IsNullOrWhiteSpace(currentDishId))
+        {
+            return Array.Empty<string>();
+        }
+
+        var owner = endlessConveyor.Owner!;
+        var cost = endlessConveyor.DynamicVars.Gold.IntValue;
+        var gold = owner.Gold;
+        var rng = CloneRng(endlessConveyor.Rng);
+        var numOfGrabs = previewsafeGetNumber(endlessConveyor, "_numOfGrabs");
+        var lastDishId = GetPrivateString(endlessConveyor, "_lastDishId");
+        var virtualUpgraded = new HashSet<CardModel>();
+        var lines = new List<string> { "连续抓取预测：" };
+
+        for (var grab = 1; grab <= 200; grab++)
+        {
+            if (gold < cost)
+            {
+                lines.Add($"停止：金币 {gold}，不足 {cost}，第一项会灰掉。");
+                break;
+            }
+
+            var beforeGold = gold;
+            if (currentDishId == "GOLDEN_FYSH")
+            {
+                gold += endlessConveyor.DynamicVars["GoldenFyshGold"].IntValue;
+            }
+            else
+            {
+                gold -= cost;
+            }
+
+            var effect = BuildEndlessConveyorSimulatedEffect(endlessConveyor, currentDishId, rng, virtualUpgraded);
+            lines.Add($"{grab}. {EndlessDishTitle(currentDishId)}：{effect}（金币 {beforeGold} -> {gold}）。");
+
+            if (currentDishId == "JELLY_LIVER")
+            {
+                lines.Add("Jelly Liver 之后的下一道菜取决于你选哪张牌转化；预测在这里停止。");
+                break;
+            }
+
+            lastDishId = currentDishId;
+            currentDishId = RollNextEndlessConveyorDishId(endlessConveyor, rng, ++numOfGrabs, lastDishId);
+            if (string.IsNullOrWhiteSpace(currentDishId))
+            {
+                lines.Add("停止：无法预测下一道料理。");
+                break;
+            }
+        }
+
+        return lines;
+    }
+
+    private static string BuildEndlessConveyorSimulatedEffect(
+        EndlessConveyor endlessConveyor,
+        string dishId,
+        Rng rng,
+        ISet<CardModel> virtualUpgraded)
+    {
+        var owner = endlessConveyor.Owner!;
+        switch (dishId)
+        {
+            case "CLAM_ROLL":
+                return $"回复 {endlessConveyor.DynamicVars["ClamRollHeal"].IntValue} 点生命";
+            case "CAVIAR":
+                return $"增加 {endlessConveyor.DynamicVars["CaviarMaxHp"].IntValue} 点最大生命";
+            case "SUSPICIOUS_CONDIMENT":
+                return "获得 1 瓶药水";
+            case "JELLY_LIVER":
+                return "选择 1 张牌并随机转化";
+            case "SEAPUNK_SALAD":
+                return $"加入 {CardTitle(ModelDb.Card<FeedingFrenzy>())}";
+            case "FRIED_EEL":
+                return "加入 1 张无色牌";
+            case "GOLDEN_FYSH":
+                return $"获得 {endlessConveyor.DynamicVars["GoldenFyshGold"].IntValue} 金币";
+            case "SPICY_SNAPPY":
+            {
+                var candidates = owner.Deck.Cards
+                    .Where(card => card.IsUpgradable && !virtualUpgraded.Contains(card))
+                    .ToList();
+                if (candidates.Count == 0)
+                {
+                    return "不会升级任何牌";
+                }
+
+                var upgraded = rng.NextItem(candidates);
+                if (upgraded is null)
+                {
+                    return "不会升级任何牌";
+                }
+
+                virtualUpgraded.Add(upgraded);
+                return $"升级 {CardTitle(upgraded)}";
+            }
+            default:
+                return "执行当前料理效果";
+        }
+    }
+
+    private static string? RollNextEndlessConveyorDishId(EndlessConveyor endlessConveyor, Rng rng, int nextNumOfGrabs, string? lastDishId)
+    {
+        if (nextNumOfGrabs % 5 == 0)
+        {
+            return "SEAPUNK_SALAD";
+        }
+
+        var owner = endlessConveyor.Owner!;
+        var dishes = new List<(string Id, float Weight)>
+        {
+            ("CAVIAR", 6f),
+            ("SPICY_SNAPPY", 3f),
+            ("JELLY_LIVER", 3f),
+            ("FRIED_EEL", 3f)
+        };
+
+        if (owner.HasOpenPotionSlots)
+        {
+            dishes.Add(("SUSPICIOUS_CONDIMENT", 3f));
+        }
+
+        if (owner.Creature.CurrentHp != owner.Creature.MaxHp)
+        {
+            dishes.Add(("CLAM_ROLL", 6f));
+        }
+
+        if (nextNumOfGrabs > 1)
+        {
+            dishes.Add(("GOLDEN_FYSH", 1f));
+        }
+
+        dishes.RemoveAll(dish => string.Equals(dish.Id, lastDishId, StringComparison.OrdinalIgnoreCase));
+        if (dishes.Count == 0)
+        {
+            return null;
+        }
+
+        var totalWeight = dishes.Sum(dish => dish.Weight);
+        var roll = rng.NextFloat(1f) * totalWeight;
+        var cumulative = 0f;
+        foreach (var dish in dishes)
+        {
+            cumulative += dish.Weight;
+            if (roll < cumulative)
+            {
+                return dish.Id;
+            }
+        }
+
+        return dishes[^1].Id;
+    }
+
+    private static string? GetEndlessConveyorCurrentDishId(EndlessConveyor endlessConveyor)
+    {
+        var field = AccessTools.Field(typeof(EndlessConveyor), "_currentDish");
+        var currentDish = field?.GetValue(endlessConveyor);
+        return currentDish is null ? null : AccessTools.Field(currentDish.GetType(), "id")?.GetValue(currentDish) as string;
+    }
+
+    private static string? GetPrivateString<T>(T instance, string fieldName)
+    {
+        return AccessTools.Field(typeof(T), fieldName)?.GetValue(instance) as string;
+    }
+
+    private static string EndlessDishTitle(string dishId)
+    {
+        return RandomVisionGameText.ResolveLocString(new LocString("events", $"ENDLESS_CONVEYOR.DISHES.{dishId}.title"));
+    }
+
+    private static bool TryDescribeEndlessDish(EndlessConveyor endlessConveyor, string currentDishId, out IReadOnlyList<string> lines)
     {
         var owner = endlessConveyor.Owner!;
         lines = Array.Empty<string>();
         var cardRewardState = new RewardPreviewState(owner);
 
-        if (currentDishTitle == RandomVisionGameText.ResolveLocString(new LocString("events", "ENDLESS_CONVEYOR.DISHES.CLAM_ROLL.title")))
+        if (string.Equals(currentDishId, "CLAM_ROLL", StringComparison.OrdinalIgnoreCase))
         {
             lines = new[] { $"当前料理：回复 {endlessConveyor.DynamicVars["ClamRollHeal"].IntValue} 点生命。", $"会花费 {endlessConveyor.DynamicVars.Gold.IntValue} 金币。" };
             return true;
         }
-        if (currentDishTitle == RandomVisionGameText.ResolveLocString(new LocString("events", "ENDLESS_CONVEYOR.DISHES.CAVIAR.title")))
+        if (string.Equals(currentDishId, "CAVIAR", StringComparison.OrdinalIgnoreCase))
         {
             lines = new[] { $"当前料理：增加 {endlessConveyor.DynamicVars["CaviarMaxHp"].IntValue} 点最大生命。", $"会花费 {endlessConveyor.DynamicVars.Gold.IntValue} 金币。" };
             return true;
         }
-        if (currentDishTitle == RandomVisionGameText.ResolveLocString(new LocString("events", "ENDLESS_CONVEYOR.DISHES.SUSPICIOUS_CONDIMENT.title")))
+        if (string.Equals(currentDishId, "SUSPICIOUS_CONDIMENT", StringComparison.OrdinalIgnoreCase))
         {
             var potion = PeekSharedRewardPotion(owner);
             lines = new[] { potion is null ? "当前料理：获得 1 瓶药水。" : $"当前料理：获得 {PotionTitle(potion)}。", $"会花费 {endlessConveyor.DynamicVars.Gold.IntValue} 金币。" };
             return true;
         }
-        if (currentDishTitle == RandomVisionGameText.ResolveLocString(new LocString("events", "ENDLESS_CONVEYOR.DISHES.JELLY_LIVER.title")))
+        if (string.Equals(currentDishId, "JELLY_LIVER", StringComparison.OrdinalIgnoreCase))
         {
             lines = BuildTransformSelectionPreview(owner, endlessConveyor.Rng, 1)
                 .Prepend($"会花费 {endlessConveyor.DynamicVars.Gold.IntValue} 金币。")
                 .ToList();
             return true;
         }
-        if (currentDishTitle == RandomVisionGameText.ResolveLocString(new LocString("events", "ENDLESS_CONVEYOR.DISHES.SEAPUNK_SALAD.title")))
+        if (string.Equals(currentDishId, "SEAPUNK_SALAD", StringComparison.OrdinalIgnoreCase))
         {
             lines = new[] { $"当前料理：加入 {CardTitle(ModelDb.Card<FeedingFrenzy>())}。", "每第 5 次抓取都会出现。" };
             return true;
         }
-        if (currentDishTitle == RandomVisionGameText.ResolveLocString(new LocString("events", "ENDLESS_CONVEYOR.DISHES.FRIED_EEL.title")))
+        if (string.Equals(currentDishId, "FRIED_EEL", StringComparison.OrdinalIgnoreCase))
         {
             var eelCards = PeekRewardCards(owner, cardRewardState, CardCreationOptions.ForNonCombatWithDefaultOdds(new[] { ModelDb.CardPool<ColorlessCardPool>() }), 1);
             lines = new[] { eelCards.Count > 0 ? $"当前料理：加入 {CardTitle(eelCards[0])}。" : "当前料理：加入 1 张无色牌。", $"会花费 {endlessConveyor.DynamicVars.Gold.IntValue} 金币。" };
             return true;
         }
-        if (currentDishTitle == RandomVisionGameText.ResolveLocString(new LocString("events", "ENDLESS_CONVEYOR.DISHES.GOLDEN_FYSH.title")))
+        if (string.Equals(currentDishId, "GOLDEN_FYSH", StringComparison.OrdinalIgnoreCase))
         {
             lines = new[] { $"当前料理：获得 {endlessConveyor.DynamicVars["GoldenFyshGold"].IntValue} 金币。", "这次不会花钱。" };
             return true;
         }
-        if (currentDishTitle == RandomVisionGameText.ResolveLocString(new LocString("events", "ENDLESS_CONVEYOR.DISHES.SPICY_SNAPPY.title")))
+        if (string.Equals(currentDishId, "SPICY_SNAPPY", StringComparison.OrdinalIgnoreCase))
         {
             var upgraded = CloneRng(endlessConveyor.Rng).NextItem(owner.Deck.Cards.Where(card => card.IsUpgradable));
             lines = new[] { upgraded is null ? "当前料理：不会升级任何牌。" : $"当前料理：升级 {CardTitle(upgraded)}。", $"会花费 {endlessConveyor.DynamicVars.Gold.IntValue} 金币。" };
@@ -1625,12 +2655,20 @@ internal static class RandomVisionPreviewRegistry
             SetEntities(previews, "BIG_MUSHROOM", CreateRelicEntities(new[] { ModelDb.Relic<BigMushroom>() }));
         }
 
-        if (TryGetPreviewByTextKey(previews, "FRAGRANT_MUSHROOM", out _))
+        if (TryGetPreviewByTextKey(previews, "FRAGRANT_MUSHROOM", out var fragrantPreview))
         {
+            var upgraded = hungryForMushrooms.Owner!.Deck.Cards
+                .Where(card => card?.IsUpgradable ?? false)
+                .ToList()
+                .StableShuffle(CloneRng(hungryForMushrooms.Owner.RunState.Rng.Niche))
+                .Take(ModelDb.Relic<FragrantMushroom>().DynamicVars.Cards.IntValue)
+                .ToList();
             SetPreview(previews, "FRAGRANT_MUSHROOM", PreviewCoverage.Complete,
                 "会失去 15 点生命。",
-                $"然后获得 {RelicTitle(ModelDb.Relic<FragrantMushroom>())}。");
+                $"然后获得 {RelicTitle(ModelDb.Relic<FragrantMushroom>())}。",
+                upgraded.Count == 0 ? "不会升级任何牌。" : $"会升级 {JoinCards(upgraded)}。");
             SetEntities(previews, "FRAGRANT_MUSHROOM", CreateRelicEntities(new[] { ModelDb.Relic<FragrantMushroom>() }));
+            AddEntities(fragrantPreview.Entities, CreateCardEntities(upgraded));
         }
     }
 
@@ -1658,11 +2696,15 @@ internal static class RandomVisionPreviewRegistry
                 $"会出现 {potionCourier.DynamicVars["FoulPotions"].IntValue} 瓶 {PotionTitle(ModelDb.Potion<FoulPotion>())}。");
         }
 
-        if (TryGetPreviewByTextKey(previews, "RANSACK", out _))
+        if (TryGetPreviewByTextKey(previews, "RANSACK", out var ransackPreview))
         {
             var potion = PeekPotionByRarity(potionCourier.Owner!, PotionRarity.Uncommon);
             SetPreview(previews, "RANSACK", PreviewCoverage.Complete,
                 potion is null ? "会获得 1 瓶非凡药水。" : $"会获得 {PotionTitle(potion)}。");
+            if (potion is not null)
+            {
+                AddEntities(ransackPreview.Entities, CreatePotionEntities(new[] { potion }));
+            }
         }
     }
 
@@ -1676,11 +2718,17 @@ internal static class RandomVisionPreviewRegistry
             SetEntities(previews, "ENJOY_TEA", CreateRelicEntities(new[] { ModelDb.Relic<RoyalPoison>() }));
         }
 
-        if (TryGetPreviewByTextKey(previews, "PICK_FIGHT", out _))
+        if (TryGetPreviewByTextKey(previews, "PICK_FIGHT", out var pickFightPreview))
         {
+            var relic = PeekNextRelics(roundTeaParty.Owner!, 1).FirstOrDefault();
             SetPreview(previews, "PICK_FIGHT", PreviewCoverage.Complete,
                 "会先进入下一页。",
-                "下一页只能继续打架。");
+                "下一页只能继续打架。",
+                relic is null ? "打架后会获得下一件遗物。" : $"打架后会获得 {RelicTitle(relic)}。");
+            if (relic is not null)
+            {
+                AddEntities(pickFightPreview.Entities, CreateRelicEntities(new[] { relic }));
+            }
         }
 
         if (TryGetPreviewByTextKey(previews, "CONTINUE_FIGHT", out _))
@@ -1778,14 +2826,211 @@ internal static class RandomVisionPreviewRegistry
     {
         if (TryGetPreviewByTextKey(previews, "INITIAL.options.CHOOSE_CARD_TYPE", out _))
         {
-            var nextTypes = new[] { CardType.Attack, CardType.Skill, CardType.Power }
-                .ToList()
-                .TakeRandom(2, CloneRng(tinkerTime.Rng))
-                .Select(type => type.ToLocString().GetFormattedText())
+            var rng = CloneRng(tinkerTime.Rng);
+            var nextTypes = TinkerTimeCardTypes()
+                .TakeRandom(2, rng)
                 .ToList();
-            SetPreview(previews, "INITIAL.options.CHOOSE_CARD_TYPE", PreviewCoverage.Complete,
-                $"下一页会出现 2 个类型选项：{JoinTitles(nextTypes)}。");
+            var lines = new List<string>
+            {
+                $"第 2 层会出现 2 个类型选项：{JoinTitles(nextTypes.Select(TinkerTimeCardTypeTitle))}。"
+            };
+            var entities = new List<EventPreviewEntity>();
+            foreach (var cardType in nextTypes)
+            {
+                var riderRng = CloneRng(rng);
+                var riders = TinkerTimeRidersFor(cardType)
+                    .TakeRandom(2, riderRng)
+                    .ToList();
+                lines.Add($"若选 {TinkerTimeCardTypeTitle(cardType)}，第 3 层会出现：{JoinTitles(riders.Select(TinkerTimeRiderTitle))}。");
+                AddEntities(entities, CreateTinkerTimeCardEntities(tinkerTime, cardType, riders));
+            }
+
+            SetPreview(previews, "INITIAL.options.CHOOSE_CARD_TYPE", PreviewCoverage.PartialNeedsInput, lines);
+            SetEntities(previews, "INITIAL.options.CHOOSE_CARD_TYPE", entities);
+            return;
         }
+
+        foreach (var preview in previews.Where(preview => !preview.SourceOption.IsLocked))
+        {
+            if (TryGetTinkerTimeCardType(preview.SourceOption, out var cardType))
+            {
+                var riders = TinkerTimeRidersFor(cardType)
+                    .TakeRandom(2, CloneRng(tinkerTime.Rng))
+                    .ToList();
+                preview.Coverage = PreviewCoverage.PartialNeedsInput;
+                preview.Lines.Clear();
+                AddLine(preview.Lines, $"第 3 层会出现 2 个改造效果：{JoinTitles(riders.Select(TinkerTimeRiderTitle))}。");
+                foreach (var rider in riders)
+                {
+                    AddLine(preview.Lines, $"若选 {TinkerTimeRiderTitle(rider)}，获得 {TinkerTimeMadScienceTitle(tinkerTime, cardType, rider)}。");
+                }
+
+                AddEntities(preview.Entities, CreateTinkerTimeCardEntities(tinkerTime, cardType, riders));
+                continue;
+            }
+
+            if (TryGetTinkerTimeRider(preview.SourceOption, out var finalRider))
+            {
+                var finalCard = CreateTinkerTimeCard(tinkerTime, GetTinkerTimeChosenCardType(tinkerTime), finalRider);
+                preview.Coverage = PreviewCoverage.Complete;
+                preview.Lines.Clear();
+                AddLine(preview.Lines,
+                    $"获得 {TinkerTimeMadScienceTitle(finalCard, GetTinkerTimeChosenCardType(tinkerTime), finalRider)}。");
+                AddEntities(preview.Entities, CreateTinkerTimeCardEntities(
+                    tinkerTime,
+                    GetTinkerTimeChosenCardType(tinkerTime),
+                    new[] { finalRider }));
+            }
+        }
+    }
+
+    private static IReadOnlyList<CardType> TinkerTimeCardTypes()
+    {
+        return new[] { CardType.Attack, CardType.Skill, CardType.Power };
+    }
+
+    private static IReadOnlyList<TinkerTime.RiderEffect> TinkerTimeRidersFor(CardType cardType)
+    {
+        return cardType switch
+        {
+            CardType.Attack => new[]
+            {
+                TinkerTime.RiderEffect.Sapping,
+                TinkerTime.RiderEffect.Violence,
+                TinkerTime.RiderEffect.Choking
+            },
+            CardType.Skill => new[]
+            {
+                TinkerTime.RiderEffect.Energized,
+                TinkerTime.RiderEffect.Wisdom,
+                TinkerTime.RiderEffect.Chaos
+            },
+            CardType.Power => new[]
+            {
+                TinkerTime.RiderEffect.Expertise,
+                TinkerTime.RiderEffect.Curious,
+                TinkerTime.RiderEffect.Improvement
+            },
+            _ => Array.Empty<TinkerTime.RiderEffect>()
+        };
+    }
+
+    private static bool TryGetTinkerTimeCardType(EventOption option, out CardType cardType)
+    {
+        var key = option.TextKey;
+        if (key.Contains("CHOOSE_CARD_TYPE.options.ATTACK", StringComparison.OrdinalIgnoreCase))
+        {
+            cardType = CardType.Attack;
+            return true;
+        }
+
+        if (key.Contains("CHOOSE_CARD_TYPE.options.SKILL", StringComparison.OrdinalIgnoreCase))
+        {
+            cardType = CardType.Skill;
+            return true;
+        }
+
+        if (key.Contains("CHOOSE_CARD_TYPE.options.POWER", StringComparison.OrdinalIgnoreCase))
+        {
+            cardType = CardType.Power;
+            return true;
+        }
+
+        return TryInferCardTypeFromOption(option, out cardType);
+    }
+
+    private static CardType GetTinkerTimeChosenCardType(TinkerTime tinkerTime)
+    {
+        return AccessTools.Field(typeof(TinkerTime), "_chosenCardType")?.GetValue(tinkerTime) is CardType cardType
+            ? cardType
+            : default;
+    }
+
+    private static bool TryGetTinkerTimeRider(EventOption option, out TinkerTime.RiderEffect rider)
+    {
+        var key = option.TextKey;
+        foreach (var candidate in Enum.GetValues<TinkerTime.RiderEffect>())
+        {
+            if (candidate == TinkerTime.RiderEffect.None)
+            {
+                continue;
+            }
+
+            if (key.Contains($".{candidate.ToString().ToUpperInvariant()}", StringComparison.OrdinalIgnoreCase))
+            {
+                rider = candidate;
+                return true;
+            }
+        }
+
+        rider = default;
+        return false;
+    }
+
+    private static string TinkerTimeCardTypeTitle(CardType cardType)
+    {
+        return cardType.ToLocString().GetFormattedText();
+    }
+
+    private static string TinkerTimeRiderTitle(TinkerTime.RiderEffect rider)
+    {
+        return rider switch
+        {
+            TinkerTime.RiderEffect.Sapping => "Sapping",
+            TinkerTime.RiderEffect.Violence => "Violence",
+            TinkerTime.RiderEffect.Choking => "Choking",
+            TinkerTime.RiderEffect.Energized => "Energized",
+            TinkerTime.RiderEffect.Wisdom => "Wisdom",
+            TinkerTime.RiderEffect.Chaos => "Chaos",
+            TinkerTime.RiderEffect.Expertise => "Expertise",
+            TinkerTime.RiderEffect.Curious => "Curious",
+            TinkerTime.RiderEffect.Improvement => "Improvement",
+            _ => rider.ToString()
+        };
+    }
+
+    private static string TinkerTimeMadScienceTitle(TinkerTime tinkerTime, CardType cardType, TinkerTime.RiderEffect rider)
+    {
+        return TinkerTimeMadScienceTitle(CreateTinkerTimeCard(tinkerTime, cardType, rider), cardType, rider);
+    }
+
+    private static string TinkerTimeMadScienceTitle(CardModel? card, CardType cardType, TinkerTime.RiderEffect rider)
+    {
+        var title = card is null ? CardTitle(ModelDb.Card<MadScience>()) : CardTitle(card);
+        return $"{title}（{TinkerTimeCardTypeTitle(cardType)} + {TinkerTimeRiderTitle(rider)}）";
+    }
+
+    private static IReadOnlyList<EventPreviewEntity> CreateTinkerTimeCardEntities(TinkerTime tinkerTime, CardType cardType, IEnumerable<TinkerTime.RiderEffect> riders)
+    {
+        var entities = new List<EventPreviewEntity>();
+        foreach (var rider in riders)
+        {
+            var card = CreateTinkerTimeCard(tinkerTime, cardType, rider);
+            if (card is null)
+            {
+                continue;
+            }
+
+            entities.Add(new EventPreviewEntity(
+                $"card:{card.Id}:{card.IsUpgraded}:tinker:{cardType}:{rider}",
+                TinkerTimeMadScienceTitle(card, cardType, rider),
+                new IHoverTip[] { new CardHoverTip(card) }));
+        }
+
+        return entities;
+    }
+
+    private static CardModel? CreateTinkerTimeCard(TinkerTime tinkerTime, CardType cardType, TinkerTime.RiderEffect rider)
+    {
+        if (tinkerTime.Owner is null)
+        {
+            return null;
+        }
+
+        var card = tinkerTime.Owner.RunState.CreateCard<MadScience>(tinkerTime.Owner);
+        card.TinkerTimeType = cardType;
+        card.TinkerTimeRider = rider;
+        return card;
     }
 
     private static void ApplyUnrestSitePreview(UnrestSite unrestSite, IList<EventOptionPreview> previews)
@@ -1821,12 +3066,13 @@ internal static class RandomVisionPreviewRegistry
 
         if (TryGetPreviewByTextKey(previews, "UNLOCK_CHEST", out _))
         {
-            var relics = PeekNextRelics(warHistorianRepy.Owner!, 2).ToList();
+            var rewards = PeekPotionThenRelicRewards(warHistorianRepy.Owner!, potionCount: 2, relicCount: 2);
             SetPreview(previews, "UNLOCK_CHEST", PreviewCoverage.PartialNeedsInput,
                 $"移除所有 {CardTitle(ModelDb.Card<LanternKey>())}。",
-                relics.Count == 0 ? "然后会给 2 瓶药水和 2 件遗物。" : $"然后会给 2 瓶药水和 {JoinRelics(relics)}。");
+                BuildPotionRelicRewardLine(rewards.Potions, rewards.Relics));
             var entities = CreateCardEntities(new[] { ModelDb.Card<LanternKey>() }).ToList();
-            AddEntities(entities, CreateRelicEntities(relics));
+            AddEntities(entities, CreatePotionEntities(rewards.Potions));
+            AddEntities(entities, CreateRelicEntities(rewards.Relics));
             SetEntities(previews, "UNLOCK_CHEST", entities);
         }
     }
@@ -1881,6 +3127,28 @@ internal static class RandomVisionPreviewRegistry
     private static IReadOnlyList<string> BuildReflectionsLines(Reflections reflections)
     {
         var lines = new List<string>();
+        var cards = PredictReflectionsCards(reflections);
+
+        if (cards.Downgraded.Count > 0)
+        {
+            lines.Add($"先降级 {JoinCards(cards.Downgraded)}。");
+        }
+
+        if (cards.Upgraded.Count > 0)
+        {
+            lines.Add($"再升级 {JoinCards(cards.Upgraded)}。");
+        }
+
+        if (lines.Count == 0)
+        {
+            lines.Add("当前没有可变化的牌。");
+        }
+
+        return lines;
+    }
+
+    private static (IReadOnlyList<CardModel> Downgraded, IReadOnlyList<CardModel> Upgraded) PredictReflectionsCards(Reflections reflections)
+    {
         var rng = CloneRng(reflections.Rng);
         var deck = reflections.Owner!.Deck.Cards.ToList();
         var upgradedCards = deck.Where(card => card.IsUpgraded).ToList();
@@ -1930,38 +3198,68 @@ internal static class RandomVisionPreviewRegistry
             upgraded.Add(picked);
         }
 
-        if (downgraded.Count > 0)
-        {
-            lines.Add($"先降级 {JoinCards(downgraded)}。");
-        }
-
-        if (upgraded.Count > 0)
-        {
-            lines.Add($"再升级 {JoinCards(upgraded)}。");
-        }
-
-        if (lines.Count == 0)
-        {
-            lines.Add("当前没有可变化的牌。");
-        }
-
-        return lines;
+        return (downgraded, upgraded);
     }
 
-    private static CardModel? PredictNextSlipperyBridgeCard(SlipperyBridge bridge, CardModel? currentCard)
+    private static IReadOnlyList<(int Step, int HpLoss, CardModel Card)> PredictNextSlipperyBridgeHoldOns(
+        SlipperyBridge bridge,
+        CardModel? currentCard,
+        int count)
     {
         var owner = bridge.Owner!;
-        var candidates = currentCard is not null
-            ? owner.Deck.Cards.Where(card => card.GetType() != currentCard.GetType()).ToList()
-            : owner.Deck.Cards.Where(card => card.Rarity != CardRarity.Basic).ToList();
+        var rng = CloneRng(bridge.Rng);
+        var skippedRemovals = SlipperyBridgeSkippedRemovalsRef(bridge) is { } existingSkipped
+            ? new HashSet<CardModel>(existingSkipped)
+            : new HashSet<CardModel>();
+        var numberOfHoldOns = SlipperyBridgeHoldOnsRef(bridge);
+        var outcomes = new List<(int Step, int HpLoss, CardModel Card)>();
 
-        candidates.RemoveAll(card => !card.IsRemovable);
-        if (candidates.Count == 0)
+        for (var step = 1; step <= count; step++)
         {
-            candidates = owner.Deck.Cards.Where(card => card.IsRemovable).ToList();
+            var nextCard = PredictNextSlipperyBridgeCard(owner, rng, currentCard, skippedRemovals);
+            if (nextCard is null)
+            {
+                break;
+            }
+
+            outcomes.Add((step, 3 + numberOfHoldOns + step - 1, nextCard));
+            currentCard = nextCard;
         }
 
-        return CloneRng(bridge.Rng).NextItem(candidates);
+        return outcomes;
+    }
+
+    private static CardModel? PredictNextSlipperyBridgeCard(
+        Player owner,
+        Rng rng,
+        CardModel? currentCard,
+        ISet<CardModel> skippedRemovals)
+    {
+        var deckCards = owner.Deck.Cards;
+        List<CardModel> candidates;
+        if (currentCard is null)
+        {
+            candidates = deckCards
+                .Where(card => card.Rarity != CardRarity.Basic)
+                .ToList();
+        }
+        else
+        {
+            skippedRemovals.Add(currentCard);
+            candidates = deckCards
+                .Where(card => card.GetType() != currentCard.GetType())
+                .ToList();
+        }
+
+        candidates.RemoveAll(card => !card.IsRemovable || skippedRemovals.Contains(card));
+        if (candidates.Count == 0)
+        {
+            candidates = deckCards
+                .Where(card => card.IsRemovable)
+                .ToList();
+        }
+
+        return rng.NextItem(candidates);
     }
 
     private static IReadOnlyList<RelicModel> GetDollChoices()
@@ -1976,21 +3274,84 @@ internal static class RandomVisionPreviewRegistry
 
     private static IReadOnlyList<string> BuildTransformSelectionPreview(Player player, Rng rng, int selectionCount)
     {
-        var candidates = PileType.Deck.GetPile(player).Cards
-            .Where(card => card.Type != CardType.Quest && card.IsTransformable)
-            .ToList();
-
+        var candidates = BuildTransformSelectionCandidates(player);
         if (candidates.Count == 0)
         {
             return new[] { "当前没有可转化的牌。" };
         }
 
-        var mappings = candidates
+        return BuildTransformSelectionPreview(BuildTransformSelectionMappings(candidates, rng), selectionCount);
+    }
+
+    private static IReadOnlyList<(CardModel Source, IReadOnlyList<CardModel> Targets)> PeekTrialTransformOutcomes(Player player, Rng rng, int selectionCount)
+    {
+        var candidates = BuildTransformSelectionCandidates(player);
+        if (candidates.Count == 0 || selectionCount <= 0)
+        {
+            return Array.Empty<(CardModel Source, IReadOnlyList<CardModel> Targets)>();
+        }
+
+        selectionCount = Math.Min(selectionCount, candidates.Count);
+        var targetsByCandidate = candidates
+            .Select(_ => new List<CardModel>())
+            .ToList();
+        var selected = new List<int>(selectionCount);
+        var used = new bool[candidates.Count];
+
+        SimulateOrderedTransformSelections(candidates, rng, selectionCount, selected, used, targetsByCandidate, upgradeTargets: false);
+
+        return candidates
+            .Select((source, index) => (Source: source, Targets: (IReadOnlyList<CardModel>)DeduplicateCardsByTitle(targetsByCandidate[index])))
+            .Where(item => item.Targets.Count > 0)
+            .ToList();
+    }
+
+    private static IReadOnlyList<string> BuildOrderedTransformOutcomeLines(IReadOnlyList<(CardModel Source, IReadOnlyList<CardModel> Targets)> outcomes, int selectionCount)
+    {
+        if (outcomes.Count == 0)
+        {
+            return new[] { "当前没有可转化的牌。" };
+        }
+
+        var lines = new List<string>
+        {
+            $"还需要选择 {selectionCount} 张牌；结果会随选择顺序变化。"
+        };
+        foreach (var outcome in outcomes)
+        {
+            lines.Add($"{CardTitle(outcome.Source)} -> {JoinCards(outcome.Targets)}。");
+        }
+
+        return lines;
+    }
+
+    private static IReadOnlyList<(CardModel Source, CardModel Target)> BuildTransformSelectionMappings(Player player, Rng rng)
+    {
+        return BuildTransformSelectionMappings(BuildTransformSelectionCandidates(player), rng);
+    }
+
+    private static List<CardModel> BuildTransformSelectionCandidates(Player player)
+    {
+        var candidates = PileType.Deck.GetPile(player).Cards
+            .Where(card => card.Type != CardType.Quest && card.IsTransformable)
+            .ToList();
+
+        return candidates;
+    }
+
+    private static IReadOnlyList<(CardModel Source, CardModel Target)> BuildTransformSelectionMappings(
+        IReadOnlyList<CardModel> candidates,
+        Rng rng)
+    {
+        return candidates
             .Select(card => (Source: card, Target: PeekTransformTarget(card, rng)))
             .Where(item => item.Target is not null)
             .Select(item => (item.Source, item.Target!))
             .ToList();
+    }
 
+    private static IReadOnlyList<string> BuildTransformSelectionPreview(IReadOnlyList<(CardModel Source, CardModel Target)> mappings, int selectionCount)
+    {
         if (mappings.Count == 0)
         {
             return new[] { "当前无法安全预览转化结果。" };
@@ -2194,6 +3555,421 @@ internal static class RandomVisionPreviewRegistry
         return bundles;
     }
 
+    private static IReadOnlyList<IReadOnlyList<CardModel>> PeekKaleidoscopeRewards(Player player, int rewardCount)
+    {
+        var rewards = new List<IReadOnlyList<CardModel>>();
+        var rewardState = new RewardPreviewState(player);
+        var nicheRng = CloneRng(player.RunState.Rng.Niche);
+
+        for (var rewardIndex = 0; rewardIndex < rewardCount; rewardIndex++)
+        {
+            var rewardCards = new List<CardModel>();
+            var pools = player.UnlockState.CharacterCardPools
+                .Where(pool => !ReferenceEquals(pool, player.Character.CardPool))
+                .ToList()
+                .StableShuffle(nicheRng)
+                .Take(3);
+
+            foreach (var pool in pools)
+            {
+                var options = new CardCreationOptions(
+                        new[] { pool },
+                        CardCreationSource.Other,
+                        CardRarityOddsType.RegularEncounter)
+                    .WithFlags(CardCreationFlags.NoCardPoolModifications);
+                var card = PeekRewardCards(player, rewardState, options, 1).FirstOrDefault();
+                if (card is not null)
+                {
+                    rewardCards.Add(card);
+                }
+            }
+
+            if (rewardCards.Count > 0)
+            {
+                rewards.Add(rewardCards);
+            }
+        }
+
+        return rewards;
+    }
+
+    private static IReadOnlyList<IReadOnlyList<CardModel>> PeekGlassEyeRewards(Player player)
+    {
+        var rewards = new List<IReadOnlyList<CardModel>>();
+        var rewardState = new RewardPreviewState(player);
+        var rarities = new[]
+        {
+            CardRarity.Common,
+            CardRarity.Common,
+            CardRarity.Uncommon,
+            CardRarity.Uncommon,
+            CardRarity.Rare
+        };
+
+        foreach (var rarity in rarities)
+        {
+            var options = CardCreationOptions
+                .ForNonCombatWithUniformOdds(new[] { player.Character.CardPool }, card => card.Rarity == rarity)
+                .WithFlags(CardCreationFlags.NoUpgradeRoll);
+            var cards = PeekRewardCards(player, rewardState, options, 3);
+            if (cards.Count > 0)
+            {
+                rewards.Add(cards);
+            }
+        }
+
+        return rewards;
+    }
+
+    private static IReadOnlyList<PotionModel> PeekAlchemicalCofferPotions(Player player, int potionCount)
+    {
+        return PotionFactory.CreateRandomPotionsOutOfCombat(
+            player,
+            potionCount,
+            CloneRng(player.RunState.Rng.CombatPotionGeneration),
+            null);
+    }
+
+    private static (CharacterModel Character, IReadOnlyList<CardModel> Common, IReadOnlyList<CardModel> Uncommon, IReadOnlyList<CardModel> Rare, IReadOnlyList<CardModel> All) PeekSeaGlassCards(Player player, SeaGlass seaGlass)
+    {
+        var character = seaGlass.CharacterId is null
+            ? ModelDb.Character<Ironclad>()
+            : ModelDb.GetById<CharacterModel>(seaGlass.CharacterId);
+        var cardsPerRarity = seaGlass.DynamicVars.Cards.IntValue / 3;
+        var rewardState = new RewardPreviewState(player);
+
+        var common = PeekSeaGlassCardsByRarity(player, rewardState, character, CardRarity.Common, cardsPerRarity);
+        var uncommon = PeekSeaGlassCardsByRarity(player, rewardState, character, CardRarity.Uncommon, cardsPerRarity);
+        var rare = PeekSeaGlassCardsByRarity(player, rewardState, character, CardRarity.Rare, cardsPerRarity);
+        var all = common.Concat(uncommon).Concat(rare).ToList();
+
+        return (character, common, uncommon, rare, all);
+    }
+
+    private static IReadOnlyList<CardModel> PeekSeaGlassCardsByRarity(Player player, RewardPreviewState rewardState, CharacterModel character, CardRarity rarity, int count)
+    {
+        var options = CardCreationOptions
+            .ForNonCombatWithUniformOdds(new[] { character.CardPool }, card => card.Rarity == rarity)
+            .WithFlags(CardCreationFlags.NoUpgradeRoll | CardCreationFlags.NoRarityModification);
+
+        return PeekRewardCards(player, rewardState, options, count);
+    }
+
+    private static IReadOnlyList<RelicModel> PeekToyBoxRelics(Player player, int relicCount)
+    {
+        var cloneBag = RelicGrabBag.FromSerializable(player.RelicGrabBag.ToSerializable());
+        var rewardsRng = CloneRng(player.PlayerRng.Rewards);
+        var relics = new List<RelicModel>();
+
+        for (var index = 0; index < relicCount; index++)
+        {
+            var rarity = RelicFactory.RollRarity(rewardsRng);
+            var relic = cloneBag.PullFromFront(rarity, player.RunState)?.ToMutable();
+            if (relic is null)
+            {
+                break;
+            }
+
+            relic.IsWax = true;
+            relics.Add(relic);
+        }
+
+        return relics;
+    }
+
+    private static IReadOnlyList<RelicModel> PeekNeowsBonesRelics(Player player, NeowsBones neowsBones, int relicCount)
+    {
+        var validRelics = ModelDb.Event<Neow>()
+            .AllPossibleOptions
+            .Where(option => option.Relic is not null &&
+                             option.Relic.IsAllowedAtNeow(player) &&
+                             option.Relic is not NeowsBones)
+            .Select(option => option.Relic)
+            .OfType<RelicModel>()
+            .ToList();
+        CloneRng(player.PlayerRng.Rewards).Shuffle(validRelics);
+        return validRelics.Take(relicCount).ToList();
+    }
+
+    private static IReadOnlyList<CardModel> PeekNeowsBonesCurses(Player player, int curseCount)
+    {
+        return PeekRandomGeneratedCurses(player, curseCount);
+    }
+
+    private static IReadOnlyList<CardModel> PeekRandomGeneratedCurses(Player player, int curseCount)
+    {
+        var availableCurses = ModelDb.CardPool<CurseCardPool>()
+            .GetUnlockedCards(player.UnlockState, player.RunState.CardMultiplayerConstraint)
+            .Where(card => card.CanBeGeneratedByModifiers)
+            .OrderBy(card => card.Id)
+            .ToList();
+        var nicheRng = CloneRng(player.RunState.Rng.Niche);
+        var curses = new List<CardModel>();
+
+        for (var index = 0; index < curseCount && availableCurses.Count > 0; index++)
+        {
+            var curse = nicheRng.NextItem(availableCurses);
+            if (curse is null)
+            {
+                break;
+            }
+
+            availableCurses.Remove(curse);
+            curses.Add(player.RunState.CreateCard(curse, player));
+        }
+
+        return curses;
+    }
+
+    private static IReadOnlyList<(CardModel Source, CardModel Target)> PeekPandorasBoxTransformations(Player player)
+    {
+        var rng = CloneRng(player.RunState.Rng.Niche);
+        return PileType.Deck.GetPile(player).Cards
+            .Where(card => card is not null && card.IsBasicStrikeOrDefend && card.IsRemovable)
+            .Select(card => (Source: card, Target: CardFactory.CreateRandomCardForTransform(card, isInCombat: false, rng)))
+            .Where(item => item.Target is not null)
+            .Select(item => (item.Source, item.Target!))
+            .ToList();
+    }
+
+    private static IReadOnlyList<(CardModel Source, IReadOnlyList<CardModel> Targets)> PeekAstrolabeTransformOutcomes(Player player, int selectionCount)
+    {
+        var candidates = BuildTransformSelectionCandidates(player);
+        if (candidates.Count == 0 || selectionCount <= 0)
+        {
+            return Array.Empty<(CardModel Source, IReadOnlyList<CardModel> Targets)>();
+        }
+
+        selectionCount = Math.Min(selectionCount, candidates.Count);
+        var targetsByCandidate = candidates
+            .Select(_ => new List<CardModel>())
+            .ToList();
+        var selected = new List<int>(selectionCount);
+        var used = new bool[candidates.Count];
+
+        SimulateOrderedTransformSelections(candidates, player.RunState.Rng.Niche, selectionCount, selected, used, targetsByCandidate, upgradeTargets: true);
+
+        return candidates
+            .Select((source, index) => (Source: source, Targets: (IReadOnlyList<CardModel>)DeduplicateCardsByTitle(targetsByCandidate[index])))
+            .Where(item => item.Targets.Count > 0)
+            .ToList();
+    }
+
+    private static void SimulateOrderedTransformSelections(
+        IReadOnlyList<CardModel> candidates,
+        Rng rng,
+        int selectionCount,
+        List<int> selected,
+        bool[] used,
+        IReadOnlyList<List<CardModel>> targetsByCandidate,
+        bool upgradeTargets)
+    {
+        if (selected.Count == selectionCount)
+        {
+            var clonedRng = CloneRng(rng);
+            foreach (var candidateIndex in selected)
+            {
+                var target = CardFactory.CreateRandomCardForTransform(candidates[candidateIndex], isInCombat: false, clonedRng);
+                if (target is null)
+                {
+                    continue;
+                }
+
+                if (upgradeTargets)
+                {
+                    CardCmd.Upgrade(target);
+                }
+
+                targetsByCandidate[candidateIndex].Add(target);
+            }
+
+            return;
+        }
+
+        for (var index = 0; index < candidates.Count; index++)
+        {
+            if (used[index])
+            {
+                continue;
+            }
+
+            used[index] = true;
+            selected.Add(index);
+            SimulateOrderedTransformSelections(candidates, rng, selectionCount, selected, used, targetsByCandidate, upgradeTargets);
+            selected.RemoveAt(selected.Count - 1);
+            used[index] = false;
+        }
+    }
+
+    private static IReadOnlyList<CardModel> DeduplicateCardsByTitle(IEnumerable<CardModel> cards)
+    {
+        return cards
+            .GroupBy(CardTitle, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+    }
+
+    private static IReadOnlyList<RelicModel> PeekCallingBellRelics(Player player, int relicCount)
+    {
+        var rarities = new[] { RelicRarity.Common, RelicRarity.Uncommon, RelicRarity.Rare };
+        var cloneBag = RelicGrabBag.FromSerializable(player.RelicGrabBag.ToSerializable());
+        var relics = new List<RelicModel>();
+
+        foreach (var rarity in rarities.Take(relicCount))
+        {
+            var relic = cloneBag.PullFromFront(rarity, player.RunState);
+            if (relic is not null)
+            {
+                relics.Add(relic);
+            }
+        }
+
+        return relics;
+    }
+
+    private static IReadOnlyList<(int DecipherCount, int MaxHpLoss, bool UpgradesAll, IReadOnlyList<CardModel> Cards)> PeekTabletOfTruthUpgradeOrder(TabletOfTruth tablet)
+    {
+        var owner = tablet.Owner!;
+        var rng = CloneRng(tablet.Rng);
+        var virtualUpgraded = new HashSet<CardModel>();
+        var outcomes = new List<(int DecipherCount, int MaxHpLoss, bool UpgradesAll, IReadOnlyList<CardModel> Cards)>();
+        var currentCount = Math.Clamp(GetTabletOfTruthDecipherCount(tablet), 1, 4);
+
+        for (var decipherCount = currentCount; decipherCount <= 4; decipherCount++)
+        {
+            var upgradable = owner.Deck.Cards
+                .Where(card => card?.IsUpgradable == true && !virtualUpgraded.Contains(card))
+                .ToList();
+            var maxHpLoss = GetTabletOfTruthDecipherCost(owner, decipherCount);
+
+            if (decipherCount == 4)
+            {
+                foreach (var card in upgradable)
+                {
+                    virtualUpgraded.Add(card);
+                }
+
+                outcomes.Add((decipherCount, maxHpLoss, true, (IReadOnlyList<CardModel>)upgradable));
+                continue;
+            }
+
+            var upgraded = rng.NextItem(upgradable);
+            IReadOnlyList<CardModel> cards = upgraded is null ? Array.Empty<CardModel>() : new[] { upgraded };
+            if (upgraded is not null)
+            {
+                virtualUpgraded.Add(upgraded);
+            }
+
+            outcomes.Add((decipherCount, maxHpLoss, false, cards));
+        }
+
+        return outcomes;
+    }
+
+    private static int GetTabletOfTruthDecipherCount(TabletOfTruth tablet)
+    {
+        var count = TabletOfTruthDecipherCountRef(tablet);
+        return count <= 0 ? 1 : count;
+    }
+
+    private static int GetTabletOfTruthDecipherCost(Player player, int decipherCount)
+    {
+        return decipherCount switch
+        {
+            1 => 6,
+            2 => 12,
+            3 => 24,
+            4 => Math.Max(0, player.Creature.MaxHp - 1),
+            _ => 0
+        };
+    }
+
+    private static (IReadOnlyList<RelicModel> Relics, IReadOnlyList<PotionModel> Potions, IReadOnlyList<CardModel> Cards) PeekPunchOffFightRewards(Player player)
+    {
+        var rewardsRng = CloneRng(player.PlayerRng.Rewards);
+        var cloneBag = RelicGrabBag.FromSerializable(player.RelicGrabBag.ToSerializable());
+        var relics = PullPreviewRelics(player, cloneBag, rewardsRng, 1);
+        var potions = CreatePreviewPotions(player, rewardsRng, 1);
+        var rewardState = new RewardPreviewState(player, rewardsRng);
+        var options = new CardCreationOptions(
+            new[] { player.Character.CardPool },
+            CardCreationSource.Encounter,
+            CardRarityOddsType.RegularEncounter);
+        var cards = PeekRewardCards(player, rewardState, options, 3);
+
+        return (relics, potions, cards);
+    }
+
+    private static (IReadOnlyList<PotionModel> Potions, IReadOnlyList<RelicModel> Relics) PeekPotionThenRelicRewards(Player player, int potionCount, int relicCount)
+    {
+        var rewardsRng = CloneRng(player.PlayerRng.Rewards);
+        var potions = CreatePreviewPotions(player, rewardsRng, potionCount);
+        var cloneBag = RelicGrabBag.FromSerializable(player.RelicGrabBag.ToSerializable());
+        var relics = PullPreviewRelics(player, cloneBag, rewardsRng, relicCount);
+        return (potions, relics);
+    }
+
+    private static IReadOnlyList<PotionModel> PeekPhialHolsterPotions(Player player, int potionCount)
+    {
+        return PotionFactory.CreateRandomPotionsOutOfCombat(
+            player,
+            potionCount,
+            CloneRng(player.RunState.Rng.CombatPotionGeneration),
+            null);
+    }
+
+    private static IReadOnlyList<PotionModel> PeekOutOfCombatPotions(Player player, int potionCount)
+    {
+        return CreatePreviewPotions(player, CloneRng(player.PlayerRng.Rewards), potionCount);
+    }
+
+    private static IReadOnlyList<PotionModel> CreatePreviewPotions(Player player, Rng rng, int potionCount)
+    {
+        var potions = new List<PotionModel>();
+        for (var index = 0; index < potionCount; index++)
+        {
+            var potion = PotionFactory.CreateRandomPotionOutOfCombat(player, rng, null);
+            if (potion is null)
+            {
+                break;
+            }
+
+            potions.Add(potion);
+        }
+
+        return potions;
+    }
+
+    private static IReadOnlyList<RelicModel> PullPreviewRelics(Player player, RelicGrabBag cloneBag, Rng rng, int relicCount)
+    {
+        var relics = new List<RelicModel>();
+        for (var index = 0; index < relicCount; index++)
+        {
+            var rarity = RelicFactory.RollRarity(rng);
+            var relic = cloneBag.PullFromFront(rarity, player.RunState);
+            if (relic is null)
+            {
+                break;
+            }
+
+            relics.Add(relic);
+        }
+
+        return relics;
+    }
+
+    private static string BuildPotionRelicRewardLine(IReadOnlyList<PotionModel> potions, IReadOnlyList<RelicModel> relics)
+    {
+        if (potions.Count == 0 && relics.Count == 0)
+        {
+            return "然后会给 2 瓶药水和 2 件遗物。";
+        }
+
+        var potionText = potions.Count == 0 ? "2 瓶药水" : JoinPotions(potions);
+        var relicText = relics.Count == 0 ? "2 件遗物" : JoinRelics(relics);
+        return $"然后会给 {potionText} 和 {relicText}。";
+    }
+
     private static CardRarity RollPreviewRarity(CardCreationOptions options, HashSet<CardRarity> allowedRarities, CardRarityOdds rarityOdds)
     {
         var shouldChangeFutureOdds = options.Flags.HasFlag(CardCreationFlags.ForceRarityOddsChange) ||
@@ -2206,10 +3982,21 @@ internal static class RandomVisionPreviewRegistry
 
         while (!allowedRarities.Contains(rolled) && rolled != CardRarity.None)
         {
-            rolled = rolled.GetNextHighestRarity();
+            rolled = GetNextHighestRarityOrNone(rolled);
         }
 
         return rolled;
+    }
+
+    private static CardRarity GetNextHighestRarityOrNone(CardRarity rarity)
+    {
+        return rarity switch
+        {
+            CardRarity.Basic => CardRarity.Common,
+            CardRarity.Common => CardRarity.Uncommon,
+            CardRarity.Uncommon => CardRarity.Rare,
+            _ => CardRarity.None
+        };
     }
 
     private static IReadOnlyList<RelicModel> PeekNextRelics(Player player, int count, RelicRarity? rarity = null)
@@ -2390,6 +4177,54 @@ internal static class RandomVisionPreviewRegistry
         }
     }
 
+    private static void LogPreviewStep(EventModel eventModel, string step)
+    {
+        MainFile.LogInfo($"preview/event id={CleanLogValue(eventModel.Id.Entry)} type={eventModel.GetType().Name} step={step}");
+    }
+
+    private static void LogOptionPreviews(EventModel eventModel, string phase, IReadOnlyList<EventOptionPreview> previews)
+    {
+        for (var index = 0; index < previews.Count; index++)
+        {
+            LogOptionPreview(eventModel, phase, index, previews[index]);
+        }
+    }
+
+    private static void LogOptionPreview(EventModel eventModel, string phase, int index, EventOptionPreview preview)
+    {
+        var lines = preview.Lines.Count == 0
+            ? "<none>"
+            : string.Join(" | ", preview.Lines.Select(line => CleanLogValue(line, 160)));
+        var entities = preview.Entities.Count == 0
+            ? "<none>"
+            : string.Join(", ", preview.Entities.Select(entity => CleanLogValue(entity.Label, 80)));
+
+        MainFile.LogInfo(
+            $"preview/option event={CleanLogValue(eventModel.Id.Entry)} phase={phase} index={index} " +
+            $"key=\"{CleanLogValue(preview.SourceOption.TextKey)}\" title=\"{CleanLogValue(preview.Title)}\" " +
+            $"locked={preview.SourceOption.IsLocked} coverage={preview.Coverage} " +
+            $"lines=\"{CleanLogValue(lines, 700)}\" entities=\"{CleanLogValue(entities, 400)}\"");
+    }
+
+    private static string CleanLogValue(string? value, int maxLength = 120)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var cleaned = value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal)
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+
+        return cleaned.Length <= maxLength
+            ? cleaned
+            : $"{cleaned[..Math.Max(0, maxLength - 3)]}...";
+    }
+
     private static bool TryGetStringVar(EventModel eventModel, string name, out string value)
     {
         value = string.Empty;
@@ -2405,6 +4240,28 @@ internal static class RandomVisionPreviewRegistry
 
         value = RandomVisionGameText.Clean(stringVar.StringValue);
         return true;
+    }
+
+    private static bool TryGetIntVar(EventModel eventModel, string name, out int value)
+    {
+        value = 0;
+        if (!eventModel.DynamicVars.TryGetValue(name, out var dynamicVar) || dynamicVar is not IntVar intVar)
+        {
+            return false;
+        }
+
+        value = intVar.IntValue;
+        return true;
+    }
+
+    private static int GetIntVarOrDefault(RelicModel relic, string name, int defaultValue)
+    {
+        if (!relic.DynamicVars.TryGetValue(name, out var dynamicVar) || dynamicVar is not IntVar intVar || intVar.IntValue <= 0)
+        {
+            return defaultValue;
+        }
+
+        return intVar.IntValue;
     }
 
     private static bool TryGetPotionFromOption(EventOption option, out PotionModel potion)
@@ -2505,6 +4362,11 @@ internal static class RandomVisionPreviewRegistry
     private static string JoinRelics(IEnumerable<RelicModel> relics)
     {
         return JoinTitles(relics.Select(RelicTitle));
+    }
+
+    private static string JoinPotions(IEnumerable<PotionModel> potions)
+    {
+        return JoinTitles(potions.Select(PotionTitle));
     }
 
     private static string JoinTitles(IEnumerable<string> titles)
