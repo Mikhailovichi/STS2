@@ -20,6 +20,11 @@ public partial class MainFile : Node
         harmony.PatchAll(typeof(MainFile).Assembly);
     }
 
+    public static void LogInfo(string message)
+    {
+        GD.Print($"{ModId}: {message}");
+    }
+
     public static void LogError(string context, Exception exception)
     {
         GD.PrintErr($"{ModId}: {context}: {exception}");
